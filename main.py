@@ -8,12 +8,34 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from scrapers.manager import BrowserManager
+
 BASE_DIR = Path(__file__).parent
 CONFIG = yaml.safe_load((BASE_DIR / "config.yaml").read_text(encoding="utf-8"))
 AGENTS = CONFIG["agents"]
 
+_srv = CONFIG["server"]
+manager = BrowserManager(
+    agents=AGENTS,
+    profiles_dir=BASE_DIR / "profiles",
+    mode=_srv.get("browser_mode", "cdp"),
+    cdp_url=_srv.get("cdp_url", "http://localhost:9222"),
+    headless=_srv.get("headless", False),
+    channel=_srv.get("browser_channel", "chrome"),
+)
+
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
+@app.on_event("startup")
+async def _startup():
+    await manager.start()
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    await manager.stop()
 
 
 @app.get("/")
@@ -22,15 +44,15 @@ async def index():
 
 
 async def handle_status(ws: WebSocket, msg: dict):
-    # Phase 1: 스크래퍼 미구현이므로 전부 offline으로 보고한다.
-    await ws.send_json({
-        "type": "status",
-        "agents": {aid: "offline" for aid in AGENTS},
-    })
+    # 매니저에 각 에이전트 로그인 상태를 질의한다. (스크래퍼 있는 에이전트만 실제 확인)
+    agents = {}
+    for aid in AGENTS:
+        agents[aid] = await manager.status(aid)
+    await ws.send_json({"type": "status", "agents": agents})
 
 
 async def handle_send(ws: WebSocket, msg: dict):
-    # Phase 1 스텁: 실제 AI 호출 없이 수신 확인만 돌려준다. Phase 2에서 스크래퍼로 대체.
+    # Phase 2: 실제 스크래퍼로 메시지 전송. 컨텍스트/메모리 패키징은 Phase 5 범위.
     targets = msg.get("target", [])
     text = msg.get("text", "")
     for aid in targets:
@@ -38,14 +60,45 @@ async def handle_send(ws: WebSocket, msg: dict):
             await ws.send_json({"type": "error", "agent": aid, "message": "unknown agent"})
             continue
         turn_id = str(uuid.uuid4())
-        stub = f"[{AGENTS[aid]['display_name']} 스텁 응답] 받은 메시지: {text}"
-        await ws.send_json({"type": "chunk", "agent": aid, "turn_id": turn_id, "text": stub})
-        await ws.send_json({"type": "done", "agent": aid, "turn_id": turn_id})
+        try:
+            reply = await manager.send(aid, text)
+            await ws.send_json({"type": "chunk", "agent": aid, "turn_id": turn_id, "text": reply})
+            await ws.send_json({"type": "done", "agent": aid, "turn_id": turn_id})
+        except Exception as e:
+            await ws.send_json({"type": "error", "agent": aid, "message": str(e)})
+
+
+async def handle_login(ws: WebSocket, msg: dict):
+    # 헤드풀 브라우저로 로그인 페이지를 연다. 사용자가 창에서 로그인 후 login_complete를 보내야 저장된다.
+    aid = msg.get("agent")
+    if aid not in AGENTS:
+        await ws.send_json({"type": "error", "agent": aid, "message": "unknown agent"})
+        return
+    try:
+        await manager.login(aid)
+        await ws.send_json({"type": "login_required", "agent": aid, "url": AGENTS[aid]["url"]})
+    except Exception as e:
+        await ws.send_json({"type": "error", "agent": aid, "message": str(e)})
+
+
+async def handle_login_complete(ws: WebSocket, msg: dict):
+    # 사용자가 로그인을 마쳤음을 알리면 현재 세션을 storageState로 저장한다.
+    aid = msg.get("agent")
+    if aid not in AGENTS:
+        await ws.send_json({"type": "error", "agent": aid, "message": "unknown agent"})
+        return
+    try:
+        await manager.save_session(aid)
+        await ws.send_json({"type": "status", "agents": {aid: await manager.status(aid)}})
+    except Exception as e:
+        await ws.send_json({"type": "error", "agent": aid, "message": str(e)})
 
 
 HANDLERS = {
     "status": handle_status,
     "send": handle_send,
+    "login": handle_login,
+    "login_complete": handle_login_complete,
 }
 
 

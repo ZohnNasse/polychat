@@ -3,6 +3,10 @@
 server:
   host: "0.0.0.0"
   port: 7777
+  browser_mode: "cdp"         # "cdp"=실행 중인 Chrome에 접속(권장), "persistent"=영구 프로필 직접 기동
+  cdp_url: "http://localhost:9222"
+  headless: false
+  browser_channel: "chrome"   # persistent 모드에서만 사용. Chrome 미설치 시 "" 로 두면 번들 Chromium
 
 # 각 AI에게 전달할 때 이전 대화를 감싸는 템플릿. {history} 자리에 누적 대화가 들어간다.
 context_format: |
@@ -18,24 +22,48 @@ memory:
     사용자는 한국어로 간결한 답변을 선호한다.
     불필요한 설명을 줄이고 핵심만 전달한다.
 
+# selectors: UI가 바뀌면 코드 대신 이 값만 수정한다.
+#   input    = 메시지 입력 요소
+#   response = AI 응답 블록 (여러 개 중 마지막이 최신 응답)
 agents:
   claude:
     display_name: "Claude"
     color: "#D97706"
     url: "https://claude.ai/new"
     role_prompt: ""
+    selectors:
+      input: 'div[contenteditable="true"]'
+      response: 'div.font-claude-message'
+      streaming: 'div[data-is-streaming="true"]'   # 생성 중 표시. 사라지면 응답 완료. UI 바뀌면 이 값만 수정
+  chatgpt:
+    display_name: "ChatGPT"
+    color: "#74AA9C"
+    url: "https://chatgpt.com"
+    role_prompt: ""
+    selectors:
+      input: '#prompt-textarea'
+      response: 'div[data-message-author-role="assistant"]'
   gemini:
     display_name: "Gemini"
     color: "#3B82F6"
     url: "https://gemini.google.com"
     role_prompt: ""
+    selectors:
+      input: 'rich-textarea'
+      response: '.response-content'
   grok:
     display_name: "Grok"
     color: "#10B981"
     url: "https://grok.com"
     role_prompt: ""
+    selectors:
+      input: 'textarea'
+      response: '.message-bubble'
   perplexity:
     display_name: "Perplexity"
     color: "#8B5CF6"
     url: "https://perplexity.ai"
     role_prompt: ""
+    selectors:
+      input: 'textarea'
+      response: '.prose'
