@@ -4,8 +4,9 @@ __pycache__/
 .venv/
 venv/
 
-# Playwright 로그인 세션 (민감 정보 — 절대 커밋 금지)
+# Playwright 로그인 세션·프로필 (민감 정보 — 절대 커밋 금지)
 sessions/
+profiles/
 *.session.json
 
 # DB
@@ -16,6 +17,9 @@ db/
 # 환경/비밀
 .env
 *.local
+
+# 웹 UI에서 편집하는 로컬 설정(사용자별 role_prompt/노트)
+settings.json
 
 # OS
 .DS_Store

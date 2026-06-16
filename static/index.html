@@ -1,4 +1,4 @@
-<!-- WebSocket 연결·송수신을 확인하는 Phase 1 최소 프론트엔드 -->
+<!-- WebSocket 송수신 + 모델별/전역 설정 편집 UI -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -6,25 +6,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PolyChat</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-    #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; height: 320px; overflow-y: auto; background: #fafafa; }
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; height: 300px; overflow-y: auto; background: #fafafa; }
     .row { margin: 0.75rem 0; }
     .msg { margin: 0.25rem 0; font-size: 0.9rem; white-space: pre-wrap; }
     input[type=text] { width: 70%; padding: 0.5rem; }
     button { padding: 0.5rem 0.9rem; cursor: pointer; }
-    label { margin-right: 0.75rem; }
+    details { border: 1px solid #ddd; border-radius: 8px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
+    summary { cursor: pointer; font-weight: 600; }
+    .card { border-left: 4px solid #888; padding: 0.5rem 0.75rem; margin: 0.6rem 0; background: #fafafa; border-radius: 6px; }
+    .card .head { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+    .card textarea { width: 100%; box-sizing: border-box; margin-top: 0.4rem; min-height: 48px; font-family: inherit; }
+    #globalNote { width: 100%; box-sizing: border-box; min-height: 60px; font-family: inherit; }
   </style>
 </head>
 <body>
   <h1>PolyChat</h1>
   <div class="row">상태: <span id="conn">연결 중...</span> <button id="statusBtn">status 요청</button></div>
-  <div id="log"></div>
-  <div class="row" id="targets">
-    <label><input type="checkbox" value="claude" checked> Claude</label>
-    <label><input type="checkbox" value="gemini"> Gemini</label>
-    <label><input type="checkbox" value="grok"> Grok</label>
-    <label><input type="checkbox" value="perplexity"> Perplexity</label>
+  <div class="row">
+    Claude:
+    <button id="loginBtn">로그인 창 열기</button>
+    <button id="loginDoneBtn">로그인 완료(세션 저장)</button>
   </div>
+
+  <details id="settings" open>
+    <summary>설정</summary>
+    <div class="row">
+      <label for="globalNote">전역 메모리 노트 (모든 모델 공통)</label>
+      <textarea id="globalNote" placeholder="모든 모델에 공통으로 주입할 메모(예: 한국어로 간결하게)..."></textarea>
+    </div>
+    <div id="cards"></div>
+    <div class="row"><button id="saveBtn">설정 저장</button> <span id="saveMsg"></span></div>
+  </details>
+
+  <div id="log"></div>
   <div class="row">
     <input type="text" id="input" placeholder="메시지 입력...">
     <button id="sendBtn">전송</button>
@@ -33,6 +48,11 @@
   <script>
     const log = document.getElementById("log");
     const conn = document.getElementById("conn");
+    const cards = document.getElementById("cards");
+    const globalNote = document.getElementById("globalNote");
+    const saveMsg = document.getElementById("saveMsg");
+    let agents = [];  // 서버 settings로 채워진다.
+
     const append = (text) => {
       const d = document.createElement("div");
       d.className = "msg";
@@ -41,23 +61,75 @@
       log.scrollTop = log.scrollHeight;
     };
 
+    const renderCards = () => {
+      cards.innerHTML = "";
+      for (const a of agents) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.style.borderLeftColor = a.color || "#888";
+        card.innerHTML = `
+          <div class="head">
+            <input type="checkbox" data-id="${a.id}" class="enabled" ${a.enabled ? "checked" : ""}>
+            <span>${a.display_name}</span>
+          </div>
+          <textarea data-id="${a.id}" class="role" placeholder="역할 프롬프트 (첫 대화에 1회 주입)">${a.role_prompt || ""}</textarea>
+        `;
+        cards.appendChild(card);
+      }
+    };
+
     const ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.onopen = () => { conn.textContent = "연결됨"; ws.send(JSON.stringify({ type: "status" })); };
+    ws.onopen = () => {
+      conn.textContent = "연결됨";
+      ws.send(JSON.stringify({ type: "status" }));
+      ws.send(JSON.stringify({ type: "get_settings" }));
+    };
     ws.onclose = () => { conn.textContent = "연결 끊김"; };
-    ws.onmessage = (e) => append("← " + e.data);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "settings") {
+        agents = msg.agents;
+        globalNote.value = msg.global_note || "";
+        renderCards();
+        saveMsg.textContent = "불러옴";
+        return;
+      }
+      append("← " + e.data);
+    };
 
     document.getElementById("statusBtn").onclick = () =>
       ws.send(JSON.stringify({ type: "status" }));
+    document.getElementById("loginBtn").onclick = () =>
+      ws.send(JSON.stringify({ type: "login", agent: "claude" }));
+    document.getElementById("loginDoneBtn").onclick = () =>
+      ws.send(JSON.stringify({ type: "login_complete", agent: "claude" }));
 
-    document.getElementById("sendBtn").onclick = () => {
-      const text = document.getElementById("input").value.trim();
+    document.getElementById("saveBtn").onclick = () => {
+      const payload = { type: "save_settings", global_note: globalNote.value, agents: {} };
+      document.querySelectorAll(".role").forEach(t => {
+        payload.agents[t.dataset.id] = { role_prompt: t.value };
+      });
+      document.querySelectorAll(".enabled").forEach(c => {
+        payload.agents[c.dataset.id].enabled = c.checked;
+      });
+      ws.send(JSON.stringify(payload));
+      saveMsg.textContent = "저장됨";
+    };
+
+    const input = document.getElementById("input");
+    const send = () => {
+      const text = input.value.trim();
       if (!text) return;
-      const target = [...document.querySelectorAll("#targets input:checked")].map(c => c.value);
+      const target = [...document.querySelectorAll(".enabled:checked")].map(c => c.dataset.id);
       const payload = { type: "send", target, text };
       ws.send(JSON.stringify(payload));
       append("→ " + JSON.stringify(payload));
-      document.getElementById("input").value = "";
+      input.value = "";
     };
+    document.getElementById("sendBtn").onclick = send;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); send(); }
+    });
   </script>
 </body>
 </html>
