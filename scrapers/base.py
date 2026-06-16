@@ -38,21 +38,38 @@ class AIScraper(ABC):
         await self.page.keyboard.insert_text(text)
         await self.page.keyboard.press("Enter")
 
-    async def _wait_done(self) -> str:
-        # 응답 완료 감지. streaming 셀렉터가 사라지는 순간을 완료로 본다(텍스트 안정화보다 정확·신속).
+    async def _collect_response(self, on_update=None) -> str:
+        # 응답을 폴링하며 누적 텍스트를 on_update로 점진 전송한다(실시간 스트리밍).
+        # 완료 판정: streaming 셀렉터가 있으면 그것이 사라질 때, 없으면 텍스트가 3회 연속 동일할 때.
         page = self.page
         sel = self.selectors.get("streaming")
-        if not sel:
-            return await self._wait_until_stable(self._last_response_text)
-        try:
-            await page.wait_for_selector(sel, timeout=10000)                    # 응답 시작(스트리밍 등장) 대기
-        except Exception:
-            pass
-        try:
-            await page.wait_for_selector(sel, state="detached", timeout=120000)  # 스트리밍 종료=완료 대기
-        except Exception:
-            pass
-        return await self._last_response_text()
+        if sel:
+            try:
+                await page.wait_for_selector(sel, timeout=10000)  # 응답 시작(스트리밍 등장) 대기
+            except Exception:
+                pass
+        last = ""
+        same = 0
+        elapsed = 0.0
+        interval = 0.4
+        timeout = 120.0
+        while elapsed < timeout:
+            cur = (await self._last_response_text()) or ""
+            if cur != last:
+                last = cur
+                same = 0
+                if on_update:
+                    await on_update(cur)
+            elif cur:
+                same += 1
+            if sel:
+                if cur and await page.locator(sel).count() == 0:  # 스트리밍 종료=완료
+                    break
+            elif same >= 3:  # streaming 셀렉터 없는 서비스: 변화가 멈추면 완료
+                break
+            await asyncio.sleep(interval)
+            elapsed += interval
+        return last
 
     def _is_fresh(self) -> bool:
         # 아직 대화가 생성되지 않은(새 대화) 상태인지. 현재 URL이 새 대화 URL과 같으면 fresh.
@@ -74,39 +91,17 @@ class AIScraper(ABC):
         # 설정 프롬프트가 있으면 1회 주입한다. 이 전송이 대화를 생성하므로 URL을 캡처한다.
         if self.setup_prompt.strip():
             await self._submit(self.setup_prompt)
-            await self._wait_done()
+            await self._collect_response()
             if not self._is_fresh():
                 self.conversation_url = page.url
 
-    async def send_message(self, text: str) -> str:
+    async def send_message(self, text: str, on_update=None) -> str:
         await self._ensure_conversation()
         await self._submit(text)
-        reply = await self._wait_done()
+        reply = await self._collect_response(on_update)
 
         # 설정 프롬프트가 없어 아직 대화 URL을 못 잡았다면, 첫 메시지 전송 후 여기서 캡처한다.
         if not self.conversation_url and not self._is_fresh():
             self.conversation_url = self.page.url
 
         return reply
-
-    async def _wait_until_stable(self, get_text, interval=0.5, stable_rounds=3, timeout=120.0) -> str:
-        """get_text()로 응답을 주기적으로 샘플링해 연속 stable_rounds회 동일하면 완료로 판정한다.
-
-        streaming 셀렉터가 없는 서비스용 폴백. 변화가 멈춘 시점을 완료로 본다.
-        timeout 초과 시 마지막으로 본 텍스트를 반환한다.
-        """
-        elapsed = 0.0
-        last = ""
-        same = 0
-        while elapsed < timeout:
-            await asyncio.sleep(interval)
-            elapsed += interval
-            cur = (await get_text()) or ""
-            if cur and cur == last:
-                same += 1
-                if same >= stable_rounds:
-                    return cur
-            else:
-                same = 0
-                last = cur
-        return last

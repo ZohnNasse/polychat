@@ -107,7 +107,7 @@ class BrowserManager:
         """cdp 모드는 사용자 프로필이 세션을 보존하므로 별도 저장이 없다. 컨텍스트 존재만 보장한다."""
         await self._ensure_scraper(agent_id)
 
-    async def send(self, agent_id: str, text: str) -> str:
+    async def send(self, agent_id: str, text: str, on_update=None) -> str:
         async with self._lock:
             scraper = await self._ensure_scraper(agent_id)
-            return await scraper.send_message(text)
+            return await scraper.send_message(text, on_update=on_update)

@@ -66,12 +66,16 @@ async def handle_send(ws: WebSocket, msg: dict):
             await ws.send_json({"type": "error", "agent": aid, "message": "unknown agent"})
             continue
         turn_id = str(uuid.uuid4())
+
+        async def on_update(t, aid=aid, turn_id=turn_id):
+            # 생성 중 누적 텍스트를 카드에 실시간 갱신하도록 흘려보낸다.
+            await ws.send_json({"type": "chunk", "agent": aid, "turn_id": turn_id, "text": t})
+
         try:
-            reply = await manager.send(aid, text)
-            await ws.send_json({"type": "chunk", "agent": aid, "turn_id": turn_id, "text": reply})
-            await ws.send_json({"type": "done", "agent": aid, "turn_id": turn_id})
+            reply = await manager.send(aid, text, on_update=on_update)
+            await ws.send_json({"type": "done", "agent": aid, "turn_id": turn_id, "text": reply})
         except Exception as e:
-            await ws.send_json({"type": "error", "agent": aid, "message": str(e)})
+            await ws.send_json({"type": "error", "agent": aid, "turn_id": turn_id, "message": str(e)})
 
 
 async def handle_login(ws: WebSocket, msg: dict):

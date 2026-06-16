@@ -25,6 +25,13 @@
 - 설정 UI 결정: 모델별 role_prompt·전송 on/off·전역 메모리 노트를 웹 UI "설정" 패널에서 편집한다. config.yaml은 기본값, 편집값은 별도 `settings.json`에 영구 저장(.gitignore 처리, 사용자별 로컬). 서버 startup에서 settings 로드 후 `apply_to_agents`로 role_prompt를 AGENTS에 반영 → 매니저가 setup_prompt로 사용. WS: get_settings/save_settings. 한계: 이미 생성된 스크래퍼는 setup_prompt를 생성 시점에 캐시하므로 role_prompt 변경은 새 대화부터 적용(추후 "대화 초기화" 필요). global_note는 저장만 되고 실제 주입은 Phase 5.
 - 한계: Playwright 헤드풀 + 실제 claude.ai 로그인/셀렉터 동작은 사용자 맥에서만 검증 가능. sandbox는 import/문법까지만 확인함.
 
+### 카드 UI + 실시간 스트리밍 결정
+
+- UI는 "한 번의 전송 = 한 턴" 구조. 턴마다 내 메시지 + 대상 모델별 응답 카드(가로 배치, flex-wrap)를 묶어 보여준다. 본문은 일반 텍스트(white-space: pre-wrap), 마크다운 렌더 안 함.
+- 스트리밍 방식: 완료 후 한 번에 보내던 `_wait_done`/`_wait_until_stable`을 단일 `_collect_response(on_update)`로 통합. 0.4초 간격 폴링하며 누적 텍스트가 바뀔 때마다 on_update로 흘려보낸다. 완료 판정은 streaming 셀렉터가 있으면 그것이 사라질 때, 없으면 텍스트가 3회 연속 동일할 때.
+- WS 프로토콜: 생성 중 `chunk`(누적 텍스트, 델타 아님)를 여러 번 → 끝나면 `done`(최종 텍스트 포함). 프론트는 turn_id로 카드를 찾아 textContent를 통째로 교체(누적이라 유실에 강함). 에러도 turn_id로 해당 카드를 빨갛게 표시.
+- main.py handle_send가 모델·turn_id를 바인딩한 on_update 클로저를 만들어 manager.send에 넘긴다. 직렬 루프라 모델별로 순차 스트리밍된다(동시 아님 — 사용자 요청).
+
 ### 로그인/브라우저 모드 결정 (중요)
 
 - 자동으로 띄운 브라우저에 직접 로그인하는 방식은 Cloudflare(Claude)와 Google "안전하지 않은 브라우저" 차단에 양쪽 다 막혔다.
