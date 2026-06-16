@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Playwright 로그인 세션 (민감 정보 — 절대 커밋 금지)
+sessions/
+*.session.json
+
+# DB
+db/
+*.db
+*.sqlite3
+
+# 환경/비밀
+.env
+*.local
+
+# OS
+.DS_Store
