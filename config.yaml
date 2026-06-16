@@ -1,0 +1,41 @@
+# PolyChat 설정. 에이전트 / 메모리 / 컨텍스트 패키징 방식을 정의한다.
+
+server:
+  host: "0.0.0.0"
+  port: 7777
+
+# 각 AI에게 전달할 때 이전 대화를 감싸는 템플릿. {history} 자리에 누적 대화가 들어간다.
+context_format: |
+  다음은 지금까지의 대화야.
+
+  {history}
+
+  위 대화를 참고해서 답변해줘.
+
+memory:
+  provider: global_note      # 교체 지점. 다른 전략 추가 시 이 값만 변경
+  global_note: |
+    사용자는 한국어로 간결한 답변을 선호한다.
+    불필요한 설명을 줄이고 핵심만 전달한다.
+
+agents:
+  claude:
+    display_name: "Claude"
+    color: "#D97706"
+    url: "https://claude.ai/new"
+    role_prompt: ""
+  gemini:
+    display_name: "Gemini"
+    color: "#3B82F6"
+    url: "https://gemini.google.com"
+    role_prompt: ""
+  grok:
+    display_name: "Grok"
+    color: "#10B981"
+    url: "https://grok.com"
+    role_prompt: ""
+  perplexity:
+    display_name: "Perplexity"
+    color: "#8B5CF6"
+    url: "https://perplexity.ai"
+    role_prompt: ""

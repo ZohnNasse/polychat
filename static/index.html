@@ -1,0 +1,63 @@
+<!-- WebSocket 연결·송수신을 확인하는 Phase 1 최소 프론트엔드 -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolyChat</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; height: 320px; overflow-y: auto; background: #fafafa; }
+    .row { margin: 0.75rem 0; }
+    .msg { margin: 0.25rem 0; font-size: 0.9rem; white-space: pre-wrap; }
+    input[type=text] { width: 70%; padding: 0.5rem; }
+    button { padding: 0.5rem 0.9rem; cursor: pointer; }
+    label { margin-right: 0.75rem; }
+  </style>
+</head>
+<body>
+  <h1>PolyChat</h1>
+  <div class="row">상태: <span id="conn">연결 중...</span> <button id="statusBtn">status 요청</button></div>
+  <div id="log"></div>
+  <div class="row" id="targets">
+    <label><input type="checkbox" value="claude" checked> Claude</label>
+    <label><input type="checkbox" value="gemini"> Gemini</label>
+    <label><input type="checkbox" value="grok"> Grok</label>
+    <label><input type="checkbox" value="perplexity"> Perplexity</label>
+  </div>
+  <div class="row">
+    <input type="text" id="input" placeholder="메시지 입력...">
+    <button id="sendBtn">전송</button>
+  </div>
+
+  <script>
+    const log = document.getElementById("log");
+    const conn = document.getElementById("conn");
+    const append = (text) => {
+      const d = document.createElement("div");
+      d.className = "msg";
+      d.textContent = text;
+      log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+    };
+
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => { conn.textContent = "연결됨"; ws.send(JSON.stringify({ type: "status" })); };
+    ws.onclose = () => { conn.textContent = "연결 끊김"; };
+    ws.onmessage = (e) => append("← " + e.data);
+
+    document.getElementById("statusBtn").onclick = () =>
+      ws.send(JSON.stringify({ type: "status" }));
+
+    document.getElementById("sendBtn").onclick = () => {
+      const text = document.getElementById("input").value.trim();
+      if (!text) return;
+      const target = [...document.querySelectorAll("#targets input:checked")].map(c => c.value);
+      const payload = { type: "send", target, text };
+      ws.send(JSON.stringify(payload));
+      append("→ " + JSON.stringify(payload));
+      document.getElementById("input").value = "";
+    };
+  </script>
+</body>
+</html>
