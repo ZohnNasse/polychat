@@ -43,6 +43,8 @@ class AIScraper(ABC):
         # 완료 판정: streaming 셀렉터가 있으면 그것이 사라질 때, 없으면 텍스트가 3회 연속 동일할 때.
         page = self.page
         sel = self.selectors.get("streaming")
+        resp_n = await page.locator(self.selectors["response"]).count()
+        print(f"[{self.service_id}] collect 시작 sel={'Y' if sel else 'N'} resp_count={resp_n} url={page.url}")
         if sel:
             try:
                 await page.wait_for_selector(sel, timeout=10000)  # 응답 시작(스트리밍 등장) 대기
@@ -69,6 +71,7 @@ class AIScraper(ABC):
                 break
             await asyncio.sleep(interval)
             elapsed += interval
+        print(f"[{self.service_id}] collect 끝 len={len(last)} elapsed={elapsed:.1f}")
         return last
 
     def _is_fresh(self) -> bool:
@@ -104,4 +107,5 @@ class AIScraper(ABC):
         if not self.conversation_url and not self._is_fresh():
             self.conversation_url = self.page.url
 
+        print(f"[{self.service_id}] conv_url={self.conversation_url} fresh={self._is_fresh()}")
         return reply
