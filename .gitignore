@@ -23,3 +23,6 @@ settings.json
 
 # OS
 .DS_Store
+
+# 진단 결과 기록(로컬 사용자 데이터)
+diagnoses.md

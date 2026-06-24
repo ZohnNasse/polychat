@@ -94,6 +94,7 @@ class AIScraper:
 | 서비스 | URL | 입력 셀렉터 | 응답 감지 방법 |
 |--------|-----|------------|----------------|
 | Claude | claude.ai/new | `div[contenteditable]` | 스트리밍 완료 감지 (타이핑 인디케이터 사라짐) |
+| ChatGPT | chatgpt.com | `#prompt-textarea` | `div[data-message-author-role=assistant]` 마지막 항목 안정화 |
 | Gemini | gemini.google.com | `rich-textarea` | `.response-content` 안정화 대기 |
 | Grok | grok.com | `textarea` | `.message-bubble` 마지막 항목 안정화 |
 | Perplexity | perplexity.ai | `textarea` | `.prose` 블록 완료 감지 |

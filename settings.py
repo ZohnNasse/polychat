@@ -11,6 +11,8 @@ def _defaults(agents: dict, global_note: str) -> dict:
             aid: {"role_prompt": cfg.get("role_prompt", ""), "enabled": aid == "claude"}
             for aid, cfg in agents.items()
         },
+        # 컬럼(역할)별 사용자 수정값. {roleId: {"model": ..., "prompt": ...}}. 비어 있으면 config 템플릿 사용.
+        "columns": {},
     }
 
 
@@ -27,6 +29,8 @@ def load(path, agents: dict, global_note: str) -> dict:
                 data["agents"][aid].update(
                     {k: a[k] for k in ("role_prompt", "enabled") if k in a}
                 )
+        if isinstance(saved.get("columns"), dict):
+            data["columns"] = saved["columns"]
     return data
 
 

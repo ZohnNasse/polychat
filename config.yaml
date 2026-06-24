@@ -5,6 +5,8 @@ server:
   port: 7777
   browser_mode: "cdp"         # "cdp"=실행 중인 Chrome에 접속(권장), "persistent"=영구 프로필 직접 기동
   cdp_url: "http://localhost:9222"
+  cdp_auto_launch: true       # cdp 모드: 9222에 Chrome이 없으면 전용 프로필(profiles/cdp)로 직접 띄운다
+  chrome_path: ""             # 비우면 자동 탐지(/Applications/Google Chrome.app...). 다르면 직접 지정
   headless: false
   browser_channel: "chrome"   # persistent 모드에서만 사용. Chrome 미설치 시 "" 로 두면 번들 Chromium
 
@@ -15,6 +17,38 @@ context_format: |
   {history}
 
   위 대화를 참고해서 답변해줘.
+
+# 팬아웃 진단 역할 프리셋. UI에서 각 컬럼에 모델을 매핑하고, 선택 시 프롬프트가 증상 앞에 붙는다(편집 가능).
+# 핵심: 출력은 결론이 아니라 '검증할 가설'이다. 모델은 모르는 업계도 자신 있게 지어내므로 합의를 현실로 믿지 않는다.
+# 공통 제약: 질문 금지·과거 무시·간결. 각 역할 프롬프트 끝에 붙여 모델 폭주를 막는다.
+roles:
+  agree:
+    label: "동조"
+    prompt: "너는 환자(사용자)의 증상과 가설을 가장 호의적으로 해석하는 진단의야. 그 관점이 맞다면 어떤 근거·메커니즘으로 성립하는지 가장 설득력 있게 세워줘. 단정하지 말고 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+  oppose:
+    label: "반대"
+    prompt: "너는 비판적 감별진단의야. 증상·가설의 허점·리스크·반례·논리적 약점을 날카롭게 짚고, 다른 원인 가능성을 제시해. 결론이 아니라 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+  wild:
+    label: "엉뚱"
+    prompt: "너는 통념을 깨는 와일드카드 진단의야. 아무도 안 본 각도, 비틀린 메커니즘, 희귀 가능성을 던져 사고를 흔들어줘. 결론이 아니라 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+
+# 팬아웃 후 합성 프롬프트. {responses} 자리에 모델별(역할·이름) 응답이 화자 분리되어 들어간다.
+synthesis_prompt: |
+  아래는 같은 증상에 대해 세 진단의가 각자 역할로 내놓은 의견이야. 이걸 종합해서 다음 두 가지만 내놔.
+
+  1. 검증할 가설 (번호 매겨서). 결론이 아니라 '이걸 확인해보면 갈린다'는 형태로. 각 가설마다 어떻게 검증할지 한 줄.
+  2. 레드팀 반박: 위 가설들이 전부 틀렸을 가능성을, 가장 독한 각도로 한 단락.
+
+  새로운 주장을 지어내지 말고 세 의견에 있는 내용만 종합해. 질문하지 말고 바로 답하고, 군더더기 없이 간결하게.
+
+  {responses}
+
+# 단계 전환 시 직전 모델에게 보내는 정리 프롬프트(릴레이 콘솔용, 현 MVP 미사용). {my_opinion} 자리에 사용자 의견이 들어간다.
+consolidate_prompt: |
+  지금까지 우리가 나눈 대화 내용과 아래 내 의견을, 누가 무슨 말을 했는지 화자별로 분리해서 정리해줘. 새로운 주장은 추가하지 말고 있는 내용만 깔끔하게 정돈해.
+
+  [내 의견]
+  {my_opinion}
 
 memory:
   provider: global_note      # 교체 지점. 다른 전략 추가 시 이 값만 변경
@@ -33,12 +67,12 @@ agents:
     role_prompt: ""
     selectors:
       input: 'div[contenteditable="true"]'
-      response: 'div.font-claude-message'
-      streaming: 'div[data-is-streaming="true"]'   # 생성 중 표시. 사라지면 응답 완료. UI 바뀌면 이 값만 수정
+      response: '.font-claude-response'
+      streaming: '[data-is-streaming="true"]'   # 생성 중 표시. 사라지면 응답 완료. UI 바뀌면 이 값만 수정
   chatgpt:
     display_name: "ChatGPT"
     color: "#74AA9C"
-    url: "https://chatgpt.com"
+    url: "https://chatgpt.com/?temporary-chat=true"   # 임시 채팅: 기억·과거대화 미참조로 오염 차단
     role_prompt: ""
     selectors:
       input: '#prompt-textarea'
@@ -46,7 +80,7 @@ agents:
   gemini:
     display_name: "Gemini"
     color: "#3B82F6"
-    url: "https://gemini.google.com"
+    url: "https://gemini.google.com/app"   # /app = 새 대화로 진입(이전 대화 자동 재오픈 방지)
     role_prompt: ""
     selectors:
       input: 'rich-textarea'
@@ -57,7 +91,7 @@ agents:
     url: "https://grok.com"
     role_prompt: ""
     selectors:
-      input: 'textarea'
+      input: 'textarea:not([aria-hidden="true"])'   # 숨김 autosize textarea 제외, 실제 입력창만
       response: '.message-bubble'
   perplexity:
     display_name: "Perplexity"

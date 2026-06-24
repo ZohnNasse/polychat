@@ -1,4 +1,4 @@
-<!-- WebSocket 송수신 + 모델별/전역 설정 편집 UI -->
+<!-- 팬아웃 진단 콘솔 UI. 증상 1개를 세 역할(동조/반대/엉뚱) 모델에 동시 전송하고, 3열 응답을 Claude가 합성한다. -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -6,105 +6,220 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PolyChat</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-    #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; min-height: 300px; max-height: 60vh; overflow-y: auto; background: #fafafa; }
-    .row { margin: 0.75rem 0; }
-    /* 한 번의 전송 = 한 턴. 내 메시지 + 모델별 응답 카드 묶음. */
-    .turn { margin: 0 0 1.25rem; }
-    .user-msg { font-weight: 600; white-space: pre-wrap; margin-bottom: 0.5rem; }
-    .user-msg::before { content: "나 "; color: #888; font-weight: 400; }
-    .cards-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
-    .resp-card { flex: 1 1 260px; min-width: 240px; border: 1px solid #e2e2e2; border-left: 4px solid #888;
-                 border-radius: 6px; padding: 0.5rem 0.75rem; background: #fff; }
-    .resp-head { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; }
-    .resp-body { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.45; }
-    .resp-body:empty::after { content: "응답 대기 중..."; color: #aaa; }
-    .resp-card.error { border-left-color: #dc2626; }
-    .resp-card.error .resp-body { color: #dc2626; }
-    input[type=text] { width: 70%; padding: 0.5rem; }
-    button { padding: 0.5rem 0.9rem; cursor: pointer; }
+    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: 0.3rem; }
+    .row { margin: 0.6rem 0; }
+    button { padding: 0.45rem 0.85rem; cursor: pointer; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    select, textarea { font-family: inherit; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 60px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
+
     details { border: 1px solid #ddd; border-radius: 8px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
     summary { cursor: pointer; font-weight: 600; }
-    .card { border-left: 4px solid #888; padding: 0.5rem 0.75rem; margin: 0.6rem 0; background: #fafafa; border-radius: 6px; }
-    .card .head { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
-    .card textarea { width: 100%; box-sizing: border-box; margin-top: 0.4rem; min-height: 48px; font-family: inherit; }
-    #globalNote { width: 100%; box-sizing: border-box; min-height: 60px; font-family: inherit; }
+    .set-card { border-left: 4px solid #888; padding: 0.4rem 0.7rem; margin: 0.5rem 0; background: #fafafa; border-radius: 6px; }
+    .set-card .head { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+    #globalNote { min-height: 56px; }
+
+    .composer { border: 1px solid #ddd; border-radius: 8px; padding: 0.7rem 0.85rem; background: #f7f7f8; }
+    #symptom { min-height: 80px; }
+
+    /* 3 역할 컬럼을 나란히. 각 컬럼은 역할 고정 + 모델 선택 + 응답. */
+    .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-top: 1rem; }
+    .col { border: 1px solid #e2e2e2; border-top: 4px solid #888; border-radius: 8px; padding: 0.6rem 0.7rem; background: #fff; display: flex; flex-direction: column; }
+    .col-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .role-badge { font-size: 0.74rem; font-weight: 700; color: #fff; background: #888; border-radius: 999px; padding: 0.1rem 0.55rem; }
+    .col select { padding: 0.3rem; border: 1px solid #ccc; border-radius: 6px; }
+    .role-prompt { min-height: 50px; font-size: 0.8rem; background: #fbfbfb; margin: 0.35rem 0; }
+    .col-body { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5; margin-top: 0.4rem; flex: 1; }
+    .col-body:empty::after { content: "—"; color: #bbb; }
+    .col.error { border-top-color: #dc2626; }
+    .col.error .col-body { color: #dc2626; }
+
+    /* 합성 패널. 3열 아래에 가설 + 레드팀. */
+    #synthWrap { margin-top: 1rem; }
+    #synthPanel { border: 1px solid #c7d2fe; border-left: 4px solid #6366f1; border-radius: 8px; padding: 0.7rem 0.9rem; background: #f5f6ff; white-space: pre-wrap; font-size: 0.92rem; line-height: 1.55; }
+    #synthPanel:empty::after { content: "합성 대기 중..."; color: #aaa; }
+
+    /* 응답 대기 표시: 도는 스피너 + 안내 문구. 첫 글자가 오면 텍스트로 교체된다. */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { display: inline-block; width: 0.9em; height: 0.9em; border: 2px solid #ddd; border-top-color: #666; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
+    .waiting { color: #888; font-size: 0.85rem; }
   </style>
 </head>
 <body>
-  <h1>PolyChat</h1>
-  <div class="row">상태: <span id="conn">연결 중...</span> <button id="statusBtn">status 요청</button></div>
-  <div class="row">
-    Claude:
-    <button id="loginBtn">로그인 창 열기</button>
-    <button id="loginDoneBtn">로그인 완료(세션 저장)</button>
-  </div>
+  <h1>PolyChat <span style="font-size:0.9rem;font-weight:400;color:#888;">감별진단 콘솔</span></h1>
+  <div class="row">상태 <span id="conn">연결 중...</span> <button id="statusBtn">status</button> <button id="resetBtn">초기화</button></div>
 
-  <details id="settings" open>
+  <details id="settings">
     <summary>설정</summary>
     <div class="row">
-      <label for="globalNote">전역 메모리 노트 (모든 모델 공통)</label>
-      <textarea id="globalNote" placeholder="모든 모델에 공통으로 주입할 메모(예: 한국어로 간결하게)..."></textarea>
+      <label for="globalNote">전역 메모리 노트</label>
+      <textarea id="globalNote" placeholder="모든 모델 공통 메모..."></textarea>
     </div>
-    <div id="cards"></div>
+    <div id="setCards"></div>
     <div class="row"><button id="saveBtn">설정 저장</button> <span id="saveMsg"></span></div>
   </details>
 
-  <div id="log"></div>
-  <div class="row">
-    <input type="text" id="input" placeholder="메시지 입력...">
-    <button id="sendBtn">전송</button>
+  <!-- 증상 입력 1개. 진단 시작 = 세 컬럼에 동시 전송. -->
+  <div class="composer" id="symptomComposer">
+    <label for="symptom">증상 (질문·맥락)</label>
+    <textarea id="symptom" placeholder="진단받을 증상을 입력하세요..."></textarea>
+    <div class="row"><button id="startBtn">진단 시작</button></div>
+  </div>
+
+  <div class="cols" id="cols"></div>
+
+  <div id="synthWrap" style="display:none;">
+    <div class="row"><button id="synthBtn" disabled>Claude 합성 (가설 + 레드팀)</button></div>
+    <div id="synthPanel"></div>
+    <!-- 재반박 루프: 합성 결과를 보고 의견을 조율·반박하면 같은 대화를 이어 재반박을 받는다. -->
+    <div id="refineWrap" style="display:none; margin-top:0.8rem;">
+      <div id="refineThread"></div>
+      <textarea id="refineInput" placeholder="합성 결과에 반박·조율 의견을 적고 재반박 받기..."></textarea>
+      <div class="row"><button id="refineBtn">재반박 받기</button></div>
+    </div>
   </div>
 
   <script>
-    const log = document.getElementById("log");
     const conn = document.getElementById("conn");
-    const cards = document.getElementById("cards");
+    const setCards = document.getElementById("setCards");
     const globalNote = document.getElementById("globalNote");
     const saveMsg = document.getElementById("saveMsg");
-    let agents = [];  // 서버 settings로 채워진다.
+    const colsEl = document.getElementById("cols");
+    const synthWrap = document.getElementById("synthWrap");
+    const synthBtn = document.getElementById("synthBtn");
+    const synthPanel = document.getElementById("synthPanel");
+    const refineWrap = document.getElementById("refineWrap");
+    const refineThread = document.getElementById("refineThread");
+    const refineInput = document.getElementById("refineInput");
+    const refineBtn = document.getElementById("refineBtn");
+    let curRefineBody = null;  // 스트리밍 중인 재반박 응답 블록
 
-    let currentRow = null;        // 현재 턴의 카드들이 들어갈 행
-    const cardBodies = {};        // turn_id -> 응답 본문 element
+    let agents = [];
+    let roles = [];
+    let savedColumns = {};   // {roleId: {model, prompt}} 사용자 수정값. 비면 config 템플릿 사용.
+    const SYNTH_AGENT = "claude";  // 합성 담당 모델(브리프: Claude가 합성)
+    // 역할 컬럼 고정 순서 + 기본 모델. 매핑은 컬럼 드롭다운에서 매번 변경 가능.
+    const COL_DEFS = [
+      { roleId: "agree",  defModel: "claude" },
+      { roleId: "oppose", defModel: "chatgpt" },
+      { roleId: "wild",   defModel: "gemini" },
+    ];
 
-    const agentMeta = (id) =>
-      agents.find(a => a.id === id) || { display_name: id, color: "#888" };
+    let columns = [];          // {roleId, modelSel, promptTa, body, colEl, turnId, text, done}
+    const byTurn = {};         // turn_id -> column
+    let started = false;
 
-    // chunk/done/error가 오면 해당 턴·모델 카드를 찾거나 만들어 본문 element를 돌려준다.
-    const ensureCard = (msg) => {
-      const key = msg.turn_id || msg.agent;
-      if (cardBodies[key]) return cardBodies[key];
-      const meta = agentMeta(msg.agent);
-      const card = document.createElement("div");
-      card.className = "resp-card";
-      card.style.borderLeftColor = meta.color || "#888";
-      const head = document.createElement("div");
-      head.className = "resp-head";
-      head.textContent = meta.display_name;
-      const body = document.createElement("div");
-      body.className = "resp-body";
-      card.appendChild(head);
-      card.appendChild(body);
-      (currentRow || log).appendChild(card);
-      cardBodies[key] = body;
-      log.scrollTop = log.scrollHeight;
-      return body;
+    const spinnerHTML = () => '<span class="spin"></span> <span class="waiting">응답 대기중…</span>';
+    const agentMeta = (id) => agents.find(a => a.id === id) || { display_name: id, color: "#888" };
+    const roleMeta = (id) => roles.find(r => r.id === id) || { label: id, prompt: "" };
+    const enabledAgents = () => agents.filter(a => a.enabled);
+
+    const buildModelSelect = (defaultId) => {
+      const sel = document.createElement("select");
+      for (const a of enabledAgents()) {
+        const o = document.createElement("option");
+        o.value = a.id; o.textContent = a.display_name;
+        sel.appendChild(o);
+      }
+      if (defaultId && enabledAgents().some(a => a.id === defaultId)) sel.value = defaultId;
+      return sel;
     };
 
-    const renderCards = () => {
-      cards.innerHTML = "";
+    // settings 수신 후 3 역할 컬럼을 그린다.
+    const renderColumns = () => {
+      colsEl.innerHTML = "";
+      columns = [];
+      for (const def of COL_DEFS) {
+        const rm = roleMeta(def.roleId);
+        const ov = savedColumns[def.roleId] || {};   // 사용자 수정값 우선, 없으면 템플릿
+        const colEl = document.createElement("div");
+        colEl.className = "col";
+
+        const head = document.createElement("div");
+        head.className = "col-head";
+        const badge = document.createElement("span");
+        badge.className = "role-badge";
+        badge.textContent = rm.label;
+        const modelSel = buildModelSelect(ov.model || def.defModel);
+        head.appendChild(badge);
+        head.appendChild(modelSel);
+
+        const promptTa = document.createElement("textarea");
+        promptTa.className = "role-prompt";
+        promptTa.value = (typeof ov.prompt === "string") ? ov.prompt : rm.prompt;
+
+        modelSel.onchange = saveColumns;
+        promptTa.onchange = saveColumns;
+
+        const body = document.createElement("div");
+        body.className = "col-body";
+
+        colEl.appendChild(head);
+        colEl.appendChild(promptTa);
+        colEl.appendChild(body);
+        colsEl.appendChild(colEl);
+
+        columns.push({ roleId: def.roleId, modelSel, promptTa, body, colEl,
+                       turnId: null, text: "", done: false });
+      }
+    };
+
+    // 컬럼(모델·프롬프트) 수정 시 즉시 settings.json에 저장한다. 다음 실행 때 그대로 불러온다.
+    const saveColumns = () => {
+      const columns_payload = {};
+      for (const c of columns) {
+        columns_payload[c.roleId] = { model: c.modelSel.value, prompt: c.promptTa.value };
+      }
+      savedColumns = columns_payload;
+      ws.send(JSON.stringify({ type: "save_settings", columns: columns_payload }));
+    };
+
+    const startDiagnosis = () => {
+      const symptom = document.getElementById("symptom").value.trim();
+      if (!symptom || started) return;
+      const models = columns.map(c => c.modelSel.value);
+      if (new Set(models).size !== models.length) {
+        alert("같은 모델을 두 컬럼에 쓰면 한 대화에 섞여 오염돼. 역할마다 다른 모델을 골라줘.");
+        return;
+      }
+      started = true;
+      document.getElementById("startBtn").disabled = true;
+      document.getElementById("symptom").disabled = true;
+      synthWrap.style.display = "";
+
+      for (const c of columns) {
+        c.turnId = crypto.randomUUID();
+        c.text = ""; c.done = false;
+        c.modelSel.disabled = true; c.promptTa.disabled = true;
+        byTurn[c.turnId] = c;
+        const meta = agentMeta(c.modelSel.value);
+        c.colEl.style.borderTopColor = meta.color || "#888";
+        c.body.parentElement.querySelector(".role-badge").style.background = meta.color || "#888";
+        c.body.innerHTML = spinnerHTML();   // 응답 올 때까지 대기 표시
+        ws.send(JSON.stringify({ type: "send", agent: c.modelSel.value,
+                                 role_prompt: c.promptTa.value, content: symptom,
+                                 turn_id: c.turnId }));
+      }
+    };
+
+    // 세 컬럼이 모두 끝나면 합성 버튼을 연다.
+    const maybeEnableSynth = () => {
+      if (columns.every(c => c.done)) synthBtn.disabled = false;
+    };
+
+    const renderSetCards = () => {
+      setCards.innerHTML = "";
       for (const a of agents) {
         const card = document.createElement("div");
-        card.className = "card";
+        card.className = "set-card";
         card.style.borderLeftColor = a.color || "#888";
         card.innerHTML = `
           <div class="head">
             <input type="checkbox" data-id="${a.id}" class="enabled" ${a.enabled ? "checked" : ""}>
             <span>${a.display_name}</span>
-          </div>
-          <textarea data-id="${a.id}" class="role" placeholder="역할 프롬프트 (첫 대화에 1회 주입)">${a.role_prompt || ""}</textarea>
-        `;
-        cards.appendChild(card);
+          </div>`;
+        setCards.appendChild(card);
       }
     };
 
@@ -118,72 +233,105 @@
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "settings") {
-        agents = msg.agents;
+        agents = msg.agents; roles = msg.roles || [];
+        savedColumns = msg.columns || {};
         globalNote.value = msg.global_note || "";
-        renderCards();
+        renderSetCards();
+        renderColumns();
         saveMsg.textContent = "불러옴";
         return;
       }
-      if (msg.type === "chunk" || msg.type === "done") {
-        const body = ensureCard(msg);
-        if (typeof msg.text === "string" && msg.text) body.textContent = msg.text;
+      if (msg.type === "chunk") {
+        const c = byTurn[msg.turn_id];
+        if (c && msg.text) { c.text = msg.text; c.body.textContent = msg.text; }
         return;
       }
+      if (msg.type === "done") {
+        const c = byTurn[msg.turn_id];
+        if (c) {
+          c.text = msg.text || "";
+          c.body.textContent = c.text || "(빈 응답)";   // 스피너 제거
+          c.done = true;
+          maybeEnableSynth();
+        }
+        return;
+      }
+      if (msg.type === "synthesis_chunk" || msg.type === "synthesis_done") {
+        if (msg.text) synthPanel.textContent = msg.text;
+        if (msg.type === "synthesis_done") refineWrap.style.display = "";
+        return;
+      }
+      if (msg.type === "refine_chunk" || msg.type === "refine_done") {
+        if (curRefineBody && msg.text) curRefineBody.textContent = msg.text;
+        if (msg.type === "refine_done") { curRefineBody = null; refineBtn.disabled = false; refineInput.disabled = false; }
+        return;
+      }
+      if (msg.type === "reset_done") { location.reload(); return; }
       if (msg.type === "error") {
-        const body = ensureCard(msg);
-        body.parentElement.classList.add("error");
-        body.textContent = "⚠ " + (msg.message || "오류");
+        const c = byTurn[msg.turn_id];
+        if (c) {
+          c.colEl.classList.add("error");
+          c.body.textContent = "⚠ " + (msg.message || "오류");
+          c.done = true;
+          maybeEnableSynth();
+        } else if (curRefineBody) {
+          curRefineBody.textContent = "⚠ " + (msg.message || "오류");
+          curRefineBody = null; refineBtn.disabled = false; refineInput.disabled = false;
+        } else {
+          synthPanel.textContent = "⚠ " + (msg.message || "오류");
+        }
         return;
       }
-      // status 등 그 외 메시지는 화면에 띄우지 않는다.
     };
 
     document.getElementById("statusBtn").onclick = () =>
       ws.send(JSON.stringify({ type: "status" }));
-    document.getElementById("loginBtn").onclick = () =>
-      ws.send(JSON.stringify({ type: "login", agent: "claude" }));
-    document.getElementById("loginDoneBtn").onclick = () =>
-      ws.send(JSON.stringify({ type: "login_complete", agent: "claude" }));
+    // 서버 대화 컨텍스트까지 초기화한 뒤 페이지를 리로드한다(reset_done 수신 시).
+    document.getElementById("resetBtn").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
+    document.getElementById("startBtn").onclick = startDiagnosis;
+
+    // Enter=전송, Shift+Enter=줄바꿈. 증상창·재반박창 공통.
+    const enterToSend = (el, fn) => el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); fn(); }
+    });
+    enterToSend(document.getElementById("symptom"), startDiagnosis);
+    enterToSend(refineInput, () => refineBtn.onclick());
+
+    refineBtn.onclick = () => {
+      const text = refineInput.value.trim();
+      if (!text) return;
+      const mine = document.createElement("div");
+      mine.style.cssText = "white-space:pre-wrap;font-size:0.9rem;margin:0.5rem 0;padding:0.4rem 0.6rem;background:#eef;border-radius:6px;";
+      mine.textContent = "나: " + text;
+      const reply = document.createElement("div");
+      reply.style.cssText = "white-space:pre-wrap;font-size:0.92rem;line-height:1.55;margin:0.3rem 0 0.6rem;";
+      reply.innerHTML = spinnerHTML();   // 재반박 대기 표시
+      refineThread.appendChild(mine);
+      refineThread.appendChild(reply);
+      curRefineBody = reply;
+      refineBtn.disabled = true; refineInput.disabled = true;
+      refineInput.value = "";
+      ws.send(JSON.stringify({ type: "refine", agent: SYNTH_AGENT, content: text }));
+    };
+
+    synthBtn.onclick = () => {
+      synthBtn.disabled = true;
+      synthPanel.innerHTML = spinnerHTML();   // 합성 대기 표시
+      const responses = columns.map(c => ({
+        model: c.modelSel.value, role: roleMeta(c.roleId).label, text: c.text,
+      }));
+      const symptom = document.getElementById("symptom").value.trim();
+      ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT, symptom, responses }));
+    };
 
     document.getElementById("saveBtn").onclick = () => {
       const payload = { type: "save_settings", global_note: globalNote.value, agents: {} };
-      document.querySelectorAll(".role").forEach(t => {
-        payload.agents[t.dataset.id] = { role_prompt: t.value };
-      });
       document.querySelectorAll(".enabled").forEach(c => {
-        payload.agents[c.dataset.id].enabled = c.checked;
+        payload.agents[c.dataset.id] = { enabled: c.checked };
       });
       ws.send(JSON.stringify(payload));
       saveMsg.textContent = "저장됨";
     };
-
-    const input = document.getElementById("input");
-    const send = () => {
-      const text = input.value.trim();
-      if (!text) return;
-      const target = [...document.querySelectorAll(".enabled:checked")].map(c => c.dataset.id);
-      if (!target.length) return;
-      ws.send(JSON.stringify({ type: "send", target, text }));
-
-      // 이번 턴 블록 생성: 내 메시지 + 대상 모델 카드가 들어갈 빈 행.
-      const turn = document.createElement("div");
-      turn.className = "turn";
-      const u = document.createElement("div");
-      u.className = "user-msg";
-      u.textContent = text;
-      const cardsRow = document.createElement("div");
-      cardsRow.className = "cards-row";
-      turn.appendChild(u);
-      turn.appendChild(cardsRow);
-      log.appendChild(turn);
-      currentRow = cardsRow;
-      log.scrollTop = log.scrollHeight;
-      input.value = "";
-    };
-    document.getElementById("sendBtn").onclick = send;
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); send(); }
-    });
   </script>
 </body>
 </html>
