@@ -133,3 +133,10 @@
 - WS 재사용. 릴레이 턴 객체에 relay:true 플래그. chunk는 공통, done/error에서 relay 분기(relayDone: transcript push + seen 갱신 + 버튼 재활성). 팬아웃 columns.every(done) 로직과 분리.
 - 릴레이 합성. 각 슬롯 최신 응답 모아 기존 synthesize로 전송 → synthesis_done이 기존 vote 흐름을 그대로 연결(voteBtn이 columns 사용하므로 릴레이서도 동작).
 - 검증. node --check로 스크립트 구문 통과. E2E(#17)는 서버 재기동 후 실사용 확인 필요.
+
+## 2026-07-25 탭 닫힘 자가복구 (manager._ensure_scraper)
+- 증상. CDP 모드에서 에이전트 탭을 실수로 닫으면 이후 그 모델 전송이 "Target closed"로 죽고, reset·탭 재열기로도 안 살아남. 프로세스 재시작만이 복구였음.
+- 원인. `_ensure_scraper`가 스크래퍼(page 포함)를 영구 캐시하고 page 생존을 재확인 안 함. 죽은 page를 계속 반환.
+- 조치. 반환 전 `cached.page.is_closed()` 검사 → 닫혔으면 캐시 버리고 새 탭 생성. 단 `conversation_url`은 보존해 재생성 시 원래 대화로 복귀(기억 연속성 유지). 팬아웃/릴레이 공통 적용.
+- 한계. Chrome 창 전체가 닫혀 컨텍스트까지 죽은 경우는 여전히 재시작 필요(드문 케이스라 미대응).
+- 대안 검토·기각. 헤드리스 상시 백그라운드 → 실제 Chrome 로그인 세션 상실 + 봇탐지 상승 리스크. 판정 단계에선 부적절. 대신 전용 프로필(profiles/cdp) 분리 창 운영 권장.

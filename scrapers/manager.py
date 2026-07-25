@@ -129,8 +129,12 @@ class BrowserManager:
         return self._context
 
     async def _ensure_scraper(self, agent_id: str):
-        if agent_id in self._scrapers:
-            return self._scrapers[agent_id]
+        # 캐시된 스크래퍼의 탭이 살아있으면 재사용. 사용자가 탭을 닫았으면 버리고 새로 만든다.
+        cached = self._scrapers.get(agent_id)
+        if cached and not cached.page.is_closed():
+            return cached
+        saved_conv = cached.conversation_url if cached else None  # 탭이 닫혀도 대화는 이어간다
+        self._scrapers.pop(agent_id, None)
         if agent_id not in SCRAPERS:
             raise ValueError(f"no scraper for agent: {agent_id}")
         agent_cfg = self.agents.get(agent_id, {})
@@ -157,6 +161,8 @@ class BrowserManager:
 
         if cfg_url:
             scraper.url = cfg_url
+        if saved_conv:
+            scraper.conversation_url = saved_conv  # 재생성 시 원래 대화로 복귀
         self._scrapers[agent_id] = scraper
         return scraper
 
