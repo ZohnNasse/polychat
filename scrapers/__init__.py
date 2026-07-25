@@ -3,10 +3,8 @@ from .base import AIScraper
 from .claude import ClaudeScraper
 from .chatgpt import ChatGPTScraper
 from .gemini import GeminiScraper
-from .grok import GrokScraper
-from .perplexity import PerplexityScraper
 
 SCRAPERS = {
     s.service_id: s
-    for s in (ClaudeScraper, ChatGPTScraper, GeminiScraper, GrokScraper, PerplexityScraper)
+    for s in (ClaudeScraper, ChatGPTScraper, GeminiScraper)
 }

@@ -19,6 +19,7 @@ AGENTS = CONFIG["agents"]
 ROLES = CONFIG.get("roles", {})                            # 역할 프리셋(동조/반대/엉뚱)
 CONSOLIDATE_PROMPT = CONFIG.get("consolidate_prompt", "")  # 단계 전환 정리 프롬프트 템플릿(릴레이용)
 SYNTHESIS_PROMPT = CONFIG.get("synthesis_prompt", "")      # 팬아웃 후 합성 프롬프트 템플릿
+VOTE_PROMPT = CONFIG.get("vote_prompt", "")                 # MOA 투표: 합의안에 이의제기 요청
 
 # 웹 UI에서 편집한 설정. config 기본값에 settings.json을 덮어쓴 뒤 role_prompt를 AGENTS에 반영한다.
 SETTINGS_PATH = BASE_DIR / "settings.json"
@@ -179,6 +180,68 @@ async def handle_reset(ws: WebSocket, msg: dict):
     await ws.send_json({"type": "reset_done"})
 
 
+async def handle_vote(ws: WebSocket, msg: dict):
+    # MOA 투표: 합의안을 3개 모델에게 보내고 이의제기를 받는다.
+    # 프론트에서 각 모델 에이전트 ID 리스트 + 라운드 번호 + 합성 결과를 보낸다.
+    aids = msg.get("agents") or []            # 에이전트 ID 리스트
+    round_num = msg.get("round", 1)           # 몇 번째 라운드인지
+    synthesis = msg.get("synthesis", "")      # 합성 결과(투표 대상)
+    vote_turn_id = msg.get("vote_turn_id", str(uuid.uuid4()))
+
+    # 각 에이전트별로 AGENTS 딕셔너리에 있는 모델만 필터
+    valid_aids = [a for a in aids if a in AGENTS]
+    if not valid_aids:
+        await ws.send_json({"type": "error", "message": "no valid agents for vote"})
+        return
+
+    print(f"[handle_vote] round={round_num} agents={valid_aids}")
+
+    # 모든 모델에 동시 투표 요청 (asyncio.gather)
+    async def send_to_one(aid: str, idx: int):
+        prompt = VOTE_PROMPT.format(synthesis=synthesis)
+        tid = f"{vote_turn_id}-{aid}"
+        try:
+            async def on_update(t):
+                await ws.send_json({
+                    "type": "vote_chunk",
+                    "round": round_num,
+                    "agent": aid,
+                    "turn_id": tid,
+                    "text": t,
+                })
+            text = await manager.send(aid, prompt, on_update=on_update)
+            await ws.send_json({
+                "type": "vote_done",
+                "round": round_num,
+                "agent": aid,
+                "turn_id": tid,
+                "text": text,
+            })
+        except Exception as e:
+            print(f"[handle_vote:{aid}] ERROR {e!r}")
+            await ws.send_json({
+                "type": "vote_error",
+                "round": round_num,
+                "agent": aid,
+                "turn_id": tid,
+                "message": str(e),
+            })
+
+    tasks = [send_to_one(aid, i) for i, aid in enumerate(valid_aids)]
+    await asyncio.gather(*tasks)
+
+    # 모든 투표가 끝나면 최종 합성 프롬프트 보낼 준비 완료
+    vote_texts = []
+    for aid in valid_aids:
+        # 프론트에서 각 vote_done을 수신해서 저장하므로 백엔드에서는 여기서 최종 신호만 보냄
+        pass
+    await ws.send_json({
+        "type": "vote_round_complete",
+        "round": round_num,
+        "agent_count": len(valid_aids),
+    })
+
+
 async def handle_login(ws: WebSocket, msg: dict):
     # 헤드풀 브라우저로 로그인 페이지를 연다. 사용자가 창에서 로그인 후 login_complete를 보내야 저장된다.
     aid = msg.get("agent")
@@ -249,12 +312,54 @@ async def handle_save_settings(ws: WebSocket, msg: dict):
     await ws.send_json(_settings_payload())
 
 
+async def handle_finalize(ws: WebSocket, msg: dict):
+    # MOA 최종 합성: 투표 결과를 합성 모델에게 보내 최종 결론 도출
+    aid = msg.get("agent")
+    if aid not in AGENTS:
+        await ws.send_json({"type": "error", "agent": aid, "message": "unknown agent"})
+        return
+    synthesis = msg.get("synthesis", "")
+    vote_responses = msg.get("vote_responses", [])
+    blocks = []
+    for v in vote_responses:
+        name = AGENTS.get(v.get("model"), {}).get("display_name", v.get("model", "?"))
+        blocks.append(f"[{name}]\n{v.get('text', '')}")
+
+    prompt = f"""아래가 첫 합성 결과야.
+
+{synthesis}
+
+이후 각 모델이 이의제기를 나눴어. 투표 결과를 반영해 최종 결론을 내줘.
+
+{"\\n\\n".join(blocks)}
+
+1. 최종 가설 (번호 매겨서)
+2. 각 가설을 검증하는 방법 한 줄
+3. 만약 전부 틀렸다면? (한 문장)
+
+간결하게. 질문 금지."""
+
+    print(f"[handle_finalize] agent={aid} votes={len(vote_responses)}")
+
+    async def on_update(t):
+        await ws.send_json({"type": "finalize_chunk", "agent": aid, "text": t})
+
+    try:
+        text = await manager.send(aid, prompt, on_update=on_update)
+        await ws.send_json({"type": "finalize_done", "agent": aid, "text": text})
+    except Exception as e:
+        print(f"[handle_finalize:{aid}] ERROR {e!r}")
+        await ws.send_json({"type": "error", "agent": aid, "message": str(e)})
+
+
 HANDLERS = {
     "status": handle_status,
     "send": handle_send,
     "consolidate": handle_consolidate,
     "synthesize": handle_synthesize,
     "refine": handle_refine,
+    "vote": handle_vote,
+    "finalize": handle_finalize,
     "reset": handle_reset,
     "login": handle_login,
     "login_complete": handle_login_complete,

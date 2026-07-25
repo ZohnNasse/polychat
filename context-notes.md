@@ -82,3 +82,54 @@
 - 증상: collect이 모델당 2번 돎(GPT len 427→775 식), Claude는 2번 다 len=0/120초 타임아웃.
 - 원인1(이중 collect + 잡설 오염): settings.json에 팬아웃 전환 전 옛 role_prompt("냉철한 pm","번뜩이는 신입 개발자" 등)가 잔존 → apply_to_agents가 AGENTS[*].role_prompt에 복사 → _ensure_conversation이 setup_prompt로 증상 전에 첫 메시지로 전송. settings.json role_prompt 전부 "" 처리로 해결(팬아웃은 역할 프롬프트를 컬럼에서 증상과 함께 보냄).
 - 원인2(Claude 무응답): 응답 셀렉터 'div.font-claude-message'가 현재 claude.ai에서 0개(죽음). 콘솔 querySelectorAll로 확인: '.font-claude-response'=살아있음. config claude response를 '.font-claude-response', streaming을 '[data-is-streaming="true"]'(태그 비의존)로 교체. 스트리밍 셀렉터 자체는 정상이었고 응답 셀렉터만 문제였음.
+
+## UI 리뉴얼 (2026-06-28)
+
+- 컨셉 변경: "감별진단 콘솔" → "1인 개발자를 위한 아이디어 검증 작업장". House MD 의학적 프레임워크를 vibes 코딩 작업장으로 전환. 세 가지 각도(찬성/부정/엉뚱)에서 의견을 수집하고 종합하는 MOA(Multiple Opinion Aggregation) 스타일.
+- 디자인: 다크 테마 + 그라데이션 + 글로우 제거. Apple 스타일 라이트 테마로 전환 — `#f5f5f7` 배경, 흰 카드, SF Pro 계열 폰트, pill 버튼, 부드러운 그림자 (`0 2px 12px rgba(0,0,0,0.08)`).
+- 역할 배지: 각 역할에 점(도트) + 텍스트 배지로 변경. 찬성=초록(rgba(52,199,89,0.12)), 부정=빨강(rgba(255,59,48,0.1)), 엉뚱=주황(rgba(255,149,0,0.12)).
+- 콤포저: "증상 입력" → "무엇을 고민 중인가요?"로 라벨 변경. 입력 영역에 Enter 팁 표시. "진단 시작" → "시작" 버튼 텍스트 단순화.
+- 합성 패널: "Claude 합성 (가설 + 레드팀)" → "합성하기"로 간소화. 상단에 "✦ 종합" 라벨 추가, 중앙 정렬.
+- 헤더: "감별진단 콘솔" → "세 가지 시선으로 더 나은 코드를". 불필요한 status 버튼 제거. 설정 버튼에서 ⚙ 이모티콘 제거.
+- 재반박 섹션: "재반박" → "재검토"로 라벨 변경.
+- 전체적으로 모서리 반경 12px/16px, pill 버튼(980px radius), `cubic-bezier(0.25, 0.1, 0.25, 1)` 트랜지션으로 Apple UI 느낌 통일.
+
+## UI v2 — 채팅 메시지 스타일 (2026-06-29)
+
+- 3열 카드 레이아웃 → **수직 채팅 플로우**로 변경. 그래픽적 UX: 각 AI 응답이 아바타(원형, 역할별 색상) + 말풍선 버블로 나타남.
+- 사용자 메시지는 우측 파란 버블, AI 응답은 좌측 흰 버블 + 컬러 아바타.
+- 역할 배지: 찬성(초록, "찬"), 부정(빨강, "부"), 엉뚱(주황, "엉") — 아바타 안에 한글 자음 표시.
+- 콤포저: 화면 하단에 fixed로 고정 (iMessage 스타일). 전송 버튼은 원형 아이콘 버튼.
+- 역할 설정: 접을 수 있는 패널로 분리 (설정과 분리).
+- 빈 화면: 큰 아이콘 + "무엇을 고민 중인가요?" 빈 상태 메시지.
+- 합성: "✦ 종합" 라벨 + 그라데이션 아바타로 시각적 구분.
+- 헤더: backdrop-filter 블러로 sticky (Apple 스타일 네비게이션 바).
+- `bubbleIn` 애니메이션: `cubic-bezier(0.34, 1.56, 0.64, 1)` (스프링 느낌)으로 메시지 등장.
+- Enter 전송: `keydown` 이벤트 리스너로 직접 바인딩 (이전에는 `enterToSend` 헬퍼 사용).
+- columns 구조 변경: DOM 요소 대신 데이터 객체로 유지, config 패널에서 설정 저장/로드.
+
+## MOA 투표 루프 + Grok/Perplexity 제거 (2026-06-29)
+
+- Grok/Perplexity 제거: settings.json, config.yaml, scrapers/__init__.py에서 삭제. 모델은 Claude, ChatGPT, Gemini 3개.
+- MOA 투표 루프 흐름: 질문 → 3모델 → 합성 → **투표**(3모델이 합의안에 이의제기) → **최종 결론**(투표 반영) → 재검토(사용자 피드백)
+- 백엔드: `handle_vote` (3개 모델 병렬 투표, asyncio.gather), `handle_finalize` (투표 결과 반영 최종 합성) 핸들러 신설. `vote_prompt` config.yaml에 추가.
+- WS 프로토콜: `vote` (agents 배열 + synthesis + vote_turn_id) → `vote_chunk`/`vote_done` (각 모델) → `vote_round_complete` → `finalize` → `finalize_chunk`/`finalize_done`
+- 프론트: 합성 후 "투표하기" 버튼 → 각 모델별 투표 버블 → "최종 결론" 버튼 → 최종 결과 → 재검토
+- Gemini 전송 문제: Enter 키가 불안정해 `_submit` 오버라이드. ChatGPT/Gemini에 `send_button` 셀렉터 추가.
+- End-to-end 테스트: 팬아웃(3개 모델) → 합성(625자) → 투표(Claude/ChatGPT/Gemini 3개) → 최종 결론(488자) 성공. Gemini가 간헐적으로 빈 응답 발생(스트리밍 감지 문제).
+
+## 문서 정합화 (2026-07-06, overseer)
+
+- 이 노트가 어느 시점부터 `architecture.md`(untracked)에 append돼 왔다. `context-notes.md`는 06-20에서 멈춘 옛 복사본이었다(diff상 84줄까지 동일, 이후 06-28/06-29 3섹션만 architecture.md에 존재). 노트를 빼먹은 게 아니라 파일명이 어긋난 것.
+- 조치. architecture.md 전체를 context-notes.md로 통합하고 architecture.md는 제거. 앞으로 작업 노트는 이 파일 한 곳에만 쌓는다.
+- 코드 현실(06-29 기준). 모델 3개(Claude/ChatGPT/Gemini), 팬아웃 → 합성 → MOA 투표(vote/finalize) → 재검토까지 구현되고 E2E 성공. 반면 PolyChat-DESIGN.md와 checklist.md는 브로드캐스트/릴레이 시절 기준이라 여전히 드리프트. 다음 조치로 이 둘을 현행화한다.
+- 완료(같은 날). checklist.md·PolyChat-DESIGN.md 전면 현행화. WS 핸들러 12개와 outbound type은 main.py를 grep으로 실측해 반영. 검증 중 추가 발견 2건 문서에 기록. (1) `scrapers/grok.py`·`perplexity.py`가 레지스트리(SCRAPERS)에서 빠졌는데 파일은 잔존 — 죽은 코드, 삭제는 판정 후. (2) 최상위 `settings.py`(설정 병합 모듈) 누락돼 있어 구조도에 추가.
+
+## 2026-07-25 릴레이 모드 추가 (팬아웃과 병행)
+- 요구. 3-LLM 대화 유지하되 사용자가 매 턴 특정 LLM을 골라 순차 릴레이. 각 LLM은 페르소나 유지, 자기 응답은 다시 안 받고 나·타 LLM 응답만 델타로 받는다. 각 LLM 웹 대화(conversation_url) 재사용으로 기억 일관성 유지.
+- 결정. 팬아웃/릴레이 두 모드 병행(헤더 토글). 합성·투표는 릴레이에서도 버튼으로 선택적.
+- 구현 범위. index.html 프론트만. 백엔드(main.py handle_send)·config 무변경 — 델타를 프론트에서 만들어 기존 send 프로토콜 재사용. 그래서 계획상 config 델타포맷(#13)·relay 핸들러(#14)는 불필요로 삭제.
+- 메커니즘. 전역 transcript[]({speaker:'user'|slotIdx,label,text}) + relaySeen[slotIdx]=마지막 본 인덱스. relayDelta(slot)=seen 이후 항목만 라벨(`[나]`,`[찬성·Claude]`)로 이어붙임 → 자기 응답은 인덱스로 자동 제외. 첫 턴만 role_prompt(페르소나) 주입, 이후 "".
+- WS 재사용. 릴레이 턴 객체에 relay:true 플래그. chunk는 공통, done/error에서 relay 분기(relayDone: transcript push + seen 갱신 + 버튼 재활성). 팬아웃 columns.every(done) 로직과 분리.
+- 릴레이 합성. 각 슬롯 최신 응답 모아 기존 synthesize로 전송 → synthesis_done이 기존 vote 흐름을 그대로 연결(voteBtn이 columns 사용하므로 릴레이서도 동작).
+- 검증. node --check로 스크립트 구문 통과. E2E(#17)는 서버 재기동 후 실사용 확인 필요.

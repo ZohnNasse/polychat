@@ -23,25 +23,35 @@ context_format: |
 # 공통 제약: 질문 금지·과거 무시·간결. 각 역할 프롬프트 끝에 붙여 모델 폭주를 막는다.
 roles:
   agree:
-    label: "동조"
-    prompt: "너는 환자(사용자)의 증상과 가설을 가장 호의적으로 해석하는 진단의야. 그 관점이 맞다면 어떤 근거·메커니즘으로 성립하는지 가장 설득력 있게 세워줘. 단정하지 말고 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+    label: "찬성"
+    prompt: "이 아이디어를 가장 호의적으로 해석해. 이 관점이 맞다면 어떤 근거로 성립하는지 세워줘. 질문하지 말고 바로 답해(정보 부족하면 가정 한 줄 후 진행). 가설 3개 이내·각 1~2문장."
   oppose:
-    label: "반대"
-    prompt: "너는 비판적 감별진단의야. 증상·가설의 허점·리스크·반례·논리적 약점을 날카롭게 짚고, 다른 원인 가능성을 제시해. 결론이 아니라 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+    label: "부정"
+    prompt: "허점·리스크·반례를 날카롭게 짚어. 다른 가능성을 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정 한 줄 후 진행). 가설 3개 이내·각 1~2문장."
   wild:
     label: "엉뚱"
-    prompt: "너는 통념을 깨는 와일드카드 진단의야. 아무도 안 본 각도, 비틀린 메커니즘, 희귀 가능성을 던져 사고를 흔들어줘. 결론이 아니라 '검증할 가설'로 제시해. 질문하지 말고 바로 답해(정보 부족하면 가정을 한 줄로 밝히고 진행). 과거 대화·기억은 무시하고 지금 이 증상만 본다. 가설 3개 이내·각 1~2문장·전체 5문장 이내로 간결하게."
+    prompt: "아무도 안 본 각도, 비틀린 메커니즘, 희귀 가능성을 던져. 질문하지 말고 바로 답해(정보 부족하면 가정 한 줄 후 진행). 가설 3개 이내·각 1~2문장."
 
 # 팬아웃 후 합성 프롬프트. {responses} 자리에 모델별(역할·이름) 응답이 화자 분리되어 들어간다.
 synthesis_prompt: |
-  아래는 같은 증상에 대해 세 진단의가 각자 역할로 내놓은 의견이야. 이걸 종합해서 다음 두 가지만 내놔.
+  아래는 같은 주제에 대해 세 전문가가 각자 역할로 내놓은 의견이야. 이걸 종합해서 다음 두 가지만 내놔.
 
   1. 검증할 가설 (번호 매겨서). 결론이 아니라 '이걸 확인해보면 갈린다'는 형태로. 각 가설마다 어떻게 검증할지 한 줄.
   2. 레드팀 반박: 위 가설들이 전부 틀렸을 가능성을, 가장 독한 각도로 한 단락.
 
-  새로운 주장을 지어내지 말고 세 의견에 있는 내용만 종합해. 질문하지 말고 바로 답하고, 군더더기 없이 간결하게.
+  새로운 주장을 지어내지 말고 세 의견에 있는 내용만 종합해. 질문하지 말고 바로 답하고, 간결하게.
 
   {responses}
+
+# MOA 투표: 합의안에 대해 각 모델에게 이의제기를 요청하는 프롬프트
+vote_prompt: |
+  다음이 세 의견을 종합한 합의안이야. 너의 관점에서 이 합의안에 문제가 있는가?
+  - 놓치고 있는 점
+  - 다른 각도
+  - 약한 논리
+  있다면 한 줄로 적어. 괜찮으면 "동의"라고만 적어.
+
+  {synthesis}
 
 # 단계 전환 시 직전 모델에게 보내는 정리 프롬프트(릴레이 콘솔용, 현 MVP 미사용). {my_opinion} 자리에 사용자 의견이 들어간다.
 consolidate_prompt: |
@@ -77,6 +87,7 @@ agents:
     selectors:
       input: '#prompt-textarea'
       response: 'div[data-message-author-role="assistant"]'
+      send_button: 'button[data-testid="send-button"]'   # 전송 버튼(Enter 후 폴백)
   gemini:
     display_name: "Gemini"
     color: "#3B82F6"
@@ -85,19 +96,4 @@ agents:
     selectors:
       input: 'rich-textarea'
       response: '.response-content'
-  grok:
-    display_name: "Grok"
-    color: "#10B981"
-    url: "https://grok.com"
-    role_prompt: ""
-    selectors:
-      input: 'textarea:not([aria-hidden="true"])'   # 숨김 autosize textarea 제외, 실제 입력창만
-      response: '.message-bubble'
-  perplexity:
-    display_name: "Perplexity"
-    color: "#8B5CF6"
-    url: "https://perplexity.ai"
-    role_prompt: ""
-    selectors:
-      input: 'textarea'
-      response: '.prose'
+      send_button: 'button[aria-label*="Send"], button[aria-label*="보내기"]'   # 전송 버튼(한/영 로케일)

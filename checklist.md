@@ -1,78 +1,65 @@
 # PolyChat 체크리스트
 
-설계는 `PolyChat-DESIGN.md` 참고. Phase별로 진행하며 완료 항목에 체크한다.
+설계는 `PolyChat-DESIGN.md`, 작업 이력·결정은 `context-notes.md` 참고. 현행화 2026-07-06.
 
-## Phase 1 — FastAPI 서버 + WebSocket 골격
+## 현재 상태 한 줄
 
-- [x] `requirements.txt` — fastapi, uvicorn[standard], pyyaml
-- [x] `config.yaml` — agents / memory / context_format 기본값
-- [x] `main.py` — 설정 로드, 정적 파일 서빙, `/ws` WebSocket
-- [x] WebSocket 메시지 디스패치 — `status`, `send`(스텁) 처리
-- [x] `static/index.html` — 연결·송수신 확인용 최소 UI
-- [x] 검증 — uvicorn 기동, `/` 200, `/ws` status 왕복
+팬아웃 감별진단 MVP + MOA 투표 루프까지 구현·E2E 통과(2026-06-29). 남은 건 코드가 아니라 **사용자 실사용 판정** 하나.
 
-## Phase 2 — Claude 스크래퍼 + 세션 관리
+## 골격 (Phase 1~2) — 완료
 
-- [x] `scrapers/base.py` — AIScraper 추상 클래스 + 응답 안정화 헬퍼
-- [x] `scrapers/manager.py` — Playwright 생명주기, 에이전트별 context/page
-- [x] `scrapers/claude.py` — claude.ai 제어
-- [x] 셀렉터 외부화 — config.yaml `agents.*.selectors`로 분리(코드 수정 없이 교체)
-- [x] storageState 로그인 세션 저장/복원
-- [x] 응답 완료 감지(스트리밍 셀렉터 + 텍스트 안정화)
-- [x] `main.py` 연동 — status/send 실연결, login/login_complete 핸들러
-- [ ] **(사용자) 라이브 검증** — 맥에서 로그인·응답 수집, 셀렉터 튜닝
+- [x] FastAPI 서버 + `/ws` WebSocket 디스패치
+- [x] `scrapers/base.py` — AIScraper 공통 구현(전송·완료감지·대화재사용·로그인)
+- [x] `scrapers/manager.py` — 브라우저 생명주기, 에이전트별 탭
+- [x] 모델별 스크래퍼 — claude / chatgpt / gemini (thin override)
+- [x] 셀렉터 외부화 — `config.yaml agents.*.selectors`(input/response/streaming/send_button)
+- [x] 응답 완료 감지 — 스트리밍 셀렉터 소멸 감지(`_collect_response`), 없으면 텍스트 3회 안정화 폴백
 
-## Phase 3 — 프론트엔드 기본 UI
+## 브라우저 모드 — 완료
 
-- [x] 3열 레이아웃 — 역할 고정(동조/반대/엉뚱) + 모델 선택 드롭다운
-- [x] 증상 입력 1개 + 진단 시작 버튼
-- [x] 실시간 스트리밍 표시 (chunk 수신 → 컬럼 갱신)
-- [x] 합성 버튼 — 3열 응답을 Claude에게 합성 요청
-- [x] 재반박 루프 — 합성 결과에 반박 의견 → 재반박 수신
-- [x] 설정 패널 — 전역 메모리 노트 + 에이전트 enabled/disable
-- [x] 컬럼별 모델·프롬프트 편집 + settings.json 영구 저장
-- [x] 같은 모델 중복 방지 (역할 붕괴 방지)
-- [ ] **(사용자) 라이브 검증** — 실제 브라우저에서 UI 흐름 테스트
+- [x] CDP attach 모드 기본 채택 — 사용자의 로그인된 Chrome(:9222)에 접속, 봇 차단 회피
+- [x] `cdp_auto_launch` — 9222 비면 전용 프로필(`profiles/cdp`)로 직접 기동
+- [x] `persistent` 모드도 지원(`server.browser_mode`로 전환)
 
-## Phase 4 — Gemini / ChatGPT 스크래퍼
+## 팬아웃 감별진단 MVP — 완료
 
-- [x] `scrapers/gemini.py` — gemini.google.com 스크래퍼
-- [x] `scrapers/chatgpt.py` — chatgpt.com 스크래퍼 (임시 채팅 URL 사용)
-- [x] config.yaml 셀렉터 정의
-- [ ] **(사용자) 라이브 검증** — 셀렉터 튜닝
+- [x] config `roles`(동조/반대/엉뚱) 진단 프레이밍 + 공통 제약(질문금지·과거무시·간결)
+- [x] 3열 컬럼 UI — 역할 고정, 모델은 컬럼 드롭다운에서 선택(중복 모델 차단)
+- [x] 팬아웃 — 프론트가 `send` 3회(모델별 역할 주입), 순차 스트리밍
+- [x] 합성 — `synthesis_prompt` + `handle_synthesize`(Claude 고정), 결과 `diagnoses.md` 기록
+- [x] 교차 실행 오염 차단 — `reset` 핸들러 + 임시채팅/새대화 URL(ChatGPT `?temporary-chat=true`, Gemini `/app`, Claude `/new`)
 
-## Phase 5 — 역할 설정 + 컨텍스트 제어 + 메모리(MemoryProvider)
+## MOA 투표 루프 — 완료 (2026-06-29)
 
-- [x] `roles` 정의 — 동조/반대/엉뚱 역할 프롬프트
-- [x] `synthesis_prompt` — 팬아웃 후 합성 템플릿
-- [x] `consolidate_prompt` — 단계 전환 정리 템플릿
-- [x] `memory.global_note` — 전역 메모리 노트
-- [x] `context_format` — 대화 히스토리 감싸기 템플릿
-- [ ] **(향후) MemoryProvider 확장** — global_note 외 다른 전략 추가 (선택사항)
+- [x] `handle_vote` — 3모델 병렬 이의제기(asyncio.gather), `vote_prompt`
+- [x] `handle_finalize` — 투표 반영 최종 결론
+- [x] `handle_refine` — 사용자 피드백 재검토
+- [x] 흐름 E2E — 질문 → 3모델 → 합성 → 투표 → 최종 → 재검토 통과
 
-## Phase 6 — Grok / Perplexity
+## 릴레이 모드 — 완료 (2026-07-25, 프론트만)
 
-- [x] `scrapers/grok.py` — grok.com 스크래퍼
-- [x] `scrapers/perplexity.py` — perplexity.ai 스크래퍼
-- [x] config.yaml 셀렉터 정의
-- [ ] **(사용자) 라이브 검증** — 셀렉터 튜닝
+- [x] 헤더 팬아웃/릴레이 토글, 릴레이 대상 선택 바(`#relayBar`)
+- [x] 전역 transcript + `relaySeen` 델타 — 슬롯별 마지막 본 이후 항목만 전달(자기 응답 자동 제외), 첫 턴만 페르소나 주입
+- [x] 기존 `send`/`chunk`/`done` 프로토콜 재사용(백엔드·config 무변경), done/error 릴레이 분기
+- [x] 릴레이 합성 버튼 — 슬롯별 최신 응답 모아 기존 합성→투표 흐름 연결
+- [ ] **(사용자) 릴레이 E2E** — 서버 재기동 후 실사용 검증
 
-## Phase 7 — 모바일 반응형
+## UI — 완료 (2026-06-28~29)
 
-- [x] 기본 그리드 레이아웃 (3열 CSS Grid)
-- [ ] 모바일 뷰포트 테스트 + 미디어 쿼리 적용
-- [ ] 터치 인터페이스 최적화
-- [ ] 세로 화면에서의 컬럼 스택 처리
+- [x] Apple 라이트 테마 전환
+- [x] 수직 채팅 플로우(아바타 + 말풍선), 하단 고정 콤포저(iMessage 스타일)
+- [x] 역할 배지(찬/부/엉), 합성 "✦ 종합" 시각 구분
 
-## Phase 8 — (향후) 대화 컨텍스트 관리
+## 남은 것
 
-- [ ] Multi-turn 대화 — 이전 턴의 응답을 컨텍스트로 전달
-- [ ] `context_format` 실제 적용 (현재는 setup_prompt만 1회 주입)
-- [ ] 대화 히스토리 누적/절단 전략
-- [ ] `memory.provider` 교체 가능한 인터페이스 구현
+- [ ] **(사용자) 실사용 판정** — 실제 고민 3~5개를 돌려 divergence가 진짜인지 판정. MVP가 검증하려던 단 하나의 가정. 이 판정이 결론이며, 판정 전까지 UI 리디자인·기능 확장 동결.
 
-## Phase 9 — (향후) diagnoses.md 자동 관리
+## 알려진 한계 (판정에 영향)
 
-- [ ] diagnoses.md 생성/읽기 UI
-- [ ] 진단 이력 브라우저 (검색/필터)
-- [ ] 진단 통계 (빈도, 패턴)
+- 매니저가 모델당 대화 1개 재사용 → 같은 세션에서 2회 돌리면 2번째가 1번째 맥락을 봄(초기화 = "초기화" 버튼/reload).
+- ChatGPT/Gemini 계정의 메모리·개인화가 켜져 있으면 누수 가능(코드 밖, 계정 설정에서 꺼야 완전).
+- Gemini 간헐적 빈 응답(스트리밍 감지) — 재검증 대상.
+
+## 동결 (판정 통과 후에만)
+
+메모리 주입(GlobalNoteMemory, Phase 5) · 의장 다단계 루프 · 상시 레드팀 · DB(SQLite) · 멀티턴 · Grok/Perplexity · 모바일 반응형. 릴레이 콘솔용 `consolidate` 핸들러/프롬프트는 코드에 휴면 상태로 남아 있음(현 UI 미사용).

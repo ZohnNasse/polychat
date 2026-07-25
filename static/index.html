@@ -1,4 +1,4 @@
-<!-- 팬아웃 진단 콘솔 UI. 증상 1개를 세 역할(동조/반대/엉뚱) 모델에 동시 전송하고, 3열 응답을 Claude가 합성한다. -->
+<!-- PolyChat UI. 아이디어를 세 각도(찬성/부정/엉뚱)에서 살펴보고 종합하는 1인 개발 작업장. -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -6,111 +6,907 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PolyChat</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-    h1 { margin-bottom: 0.3rem; }
-    .row { margin: 0.6rem 0; }
-    button { padding: 0.45rem 0.85rem; cursor: pointer; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    select, textarea { font-family: inherit; }
-    textarea { width: 100%; box-sizing: border-box; min-height: 60px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    details { border: 1px solid #ddd; border-radius: 8px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
-    summary { cursor: pointer; font-weight: 600; }
-    .set-card { border-left: 4px solid #888; padding: 0.4rem 0.7rem; margin: 0.5rem 0; background: #fafafa; border-radius: 6px; }
-    .set-card .head { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
-    #globalNote { min-height: 56px; }
+    :root {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --surface-hover: #fafafa;
+      --border: #e0e0e4;
+      --border-focus: #007aff;
+      --text: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --text-tertiary: #aeaeb2;
+      --blue: #007aff;
+      --purple: #5856d6;
+      --green: #34c759;
+      --orange: #ff9500;
+      --red: #ff3b30;
+      --teal: #5ac8fa;
+      --pink: #ff2d55;
+      --radius: 12px;
+      --radius-lg: 20px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+      --shadow: 0 2px 16px rgba(0,0,0,0.06);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,0.1);
+      --transition: 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+      --agree: #34c759;
+      --oppose: #ff3b30;
+      --wild: #ff9500;
+    }
 
-    .composer { border: 1px solid #ddd; border-radius: 8px; padding: 0.7rem 0.85rem; background: #f7f7f8; }
-    #symptom { min-height: 80px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Noto Sans KR', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
 
-    /* 3 역할 컬럼을 나란히. 각 컬럼은 역할 고정 + 모델 선택 + 응답. */
-    .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-top: 1rem; }
-    .col { border: 1px solid #e2e2e2; border-top: 4px solid #888; border-radius: 8px; padding: 0.6rem 0.7rem; background: #fff; display: flex; flex-direction: column; }
-    .col-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
-    .role-badge { font-size: 0.74rem; font-weight: 700; color: #fff; background: #888; border-radius: 999px; padding: 0.1rem 0.55rem; }
-    .col select { padding: 0.3rem; border: 1px solid #ccc; border-radius: 6px; }
-    .role-prompt { min-height: 50px; font-size: 0.8rem; background: #fbfbfb; margin: 0.35rem 0; }
-    .col-body { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5; margin-top: 0.4rem; flex: 1; }
-    .col-body:empty::after { content: "—"; color: #bbb; }
-    .col.error { border-top-color: #dc2626; }
-    .col.error .col-body { color: #dc2626; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-    /* 합성 패널. 3열 아래에 가설 + 레드팀. */
-    #synthWrap { margin-top: 1rem; }
-    #synthPanel { border: 1px solid #c7d2fe; border-left: 4px solid #6366f1; border-radius: 8px; padding: 0.7rem 0.9rem; background: #f5f6ff; white-space: pre-wrap; font-size: 0.92rem; line-height: 1.55; }
-    #synthPanel:empty::after { content: "합성 대기 중..."; color: #aaa; }
+    /* ── Layout ── */
+    .app {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem 6rem;
+    }
 
-    /* 응답 대기 표시: 도는 스피너 + 안내 문구. 첫 글자가 오면 텍스트로 교체된다. */
+    /* ── Header ── */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      background: rgba(245,245,247,0.72);
+      margin: 0 -1rem 1.5rem;
+      padding: 0.875rem 1rem;
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .header-title {
+      font-size: 1.375rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    .header-subtitle {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-tertiary);
+      margin-right: 0.4rem;
+      display: inline-block;
+    }
+    .status-dot.connected { background: var(--green); }
+    .status-dot.connecting { background: var(--orange); }
+    .status-dot.disconnected { background: var(--red); }
+    .status-text { font-size: 0.8125rem; color: var(--text-secondary); }
+
+    button {
+      padding: 0.45rem 1rem;
+      cursor: pointer;
+      border: none;
+      border-radius: 980px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.8125rem;
+      font-family: inherit;
+      font-weight: 500;
+      transition: all var(--transition);
+    }
+    button:hover:not(:disabled) { background: rgba(0,0,0,0.04); color: var(--text); }
+    button:active:not(:disabled) { transform: scale(0.97); }
+    button:disabled { opacity: 0.35; cursor: default; }
+
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+      font-weight: 500;
+      padding: 0.5rem 1.25rem;
+    }
+    .btn-primary:hover:not(:disabled) { background: #0066d6; color: #fff; }
+
+    .btn-secondary {
+      background: var(--purple);
+      color: #fff;
+      font-weight: 500;
+    }
+    .btn-secondary:hover:not(:disabled) { background: #4b49c4; color: #fff; }
+
+    .btn-danger { color: var(--red) !important; }
+
+    /* ── Settings Panel ── */
+    .settings-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: none;
+      animation: slideDown 0.2s ease;
+    }
+    .settings-panel.open { display: block; }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .settings-section h3 {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    textarea {
+      font-family: inherit;
+      font-size: 0.8125rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.5rem 0.75rem;
+      transition: border-color var(--transition);
+      outline: none;
+      resize: vertical;
+      width: 100%;
+    }
+    textarea:focus { border-color: var(--border-focus); }
+    textarea:disabled { opacity: 0.5; cursor: default; }
+
+    .set-card {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.375rem 0;
+    }
+    .set-card input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--blue);
+      cursor: pointer;
+    }
+
+    .save-msg {
+      font-size: 0.8125rem;
+      color: var(--green);
+      margin-left: 0.5rem;
+    }
+
+    /* ── Chat Flow ── */
+    .chat-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* ── User Message Bubble ── */
+    .msg-user {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 0.75rem;
+      animation: bubbleIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .msg-user-bubble {
+      background: var(--blue);
+      color: #fff;
+      border-radius: var(--radius-lg) 4px 4px var(--radius-lg);
+      padding: 0.875rem 1.125rem;
+      max-width: 75%;
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      box-shadow: 0 2px 8px rgba(0,122,255,0.2);
+    }
+
+    @keyframes bubbleIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── AI Response Row ── */
+    .ai-responses {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .msg-ai {
+      display: flex;
+      gap: 0.75rem;
+      animation: bubbleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .ai-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      margin-top: 0.25rem;
+    }
+
+    .ai-bubble {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px var(--radius-lg) var(--radius-lg) 4px;
+      padding: 0.75rem 1rem;
+      font-size: 0.9375rem;
+      line-height: 1.7;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+    }
+
+    .ai-bubble-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.375rem;
+    }
+
+    .ai-role-label {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.125rem 0.5rem;
+      border-radius: 980px;
+    }
+
+    .ai-model-label {
+      font-size: 0.6875rem;
+      color: var(--text-tertiary);
+    }
+
+    .ai-bubble-body {
+      white-space: pre-wrap;
+      color: var(--text);
+    }
+
+    .ai-bubble-body:empty::after {
+      content: "";
+    }
+
+    .msg-ai.agree .ai-avatar { background: var(--agree); }
+    .msg-ai.agree .ai-role-label { background: rgba(52,199,89,0.12); color: #1b8a3b; }
+
+    .msg-ai.oppose .ai-avatar { background: var(--oppose); }
+    .msg-ai.oppose .ai-role-label { background: rgba(255,59,48,0.1); color: #d63027; }
+
+    .msg-ai.wild .ai-avatar { background: var(--wild); }
+    .msg-ai.wild .ai-role-label { background: rgba(255,149,0,0.12); color: #c97a06; }
+
+    /* ── Divider ── */
+    .turn-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+    }
+    .turn-divider::before,
+    .turn-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .turn-divider span {
+      font-size: 0.6875rem;
+      color: var(--text-tertiary);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    /* ── Composer (Fixed Bottom) ── */
+    .composer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      background: rgba(245,245,247,0.8);
+      padding: 0.75rem 1rem 1rem;
+    }
+
+    .composer-inner {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0.5rem;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .composer-inner textarea {
+      flex: 1;
+      min-height: 40px;
+      max-height: 120px;
+      border: none;
+      background: transparent;
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      padding: 0.375rem 0.5rem;
+    }
+    .composer-inner textarea:focus { border-color: transparent; }
+    .composer-inner textarea::placeholder { color: var(--text-tertiary); }
+    .composer-inner textarea:disabled { opacity: 0.5; }
+
+    .send-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      flex-shrink: 0;
+      transition: all var(--transition);
+    }
+    .send-btn:hover:not(:disabled) {
+      background: #0066d6;
+      transform: scale(1.05);
+    }
+    .send-btn:disabled {
+      background: var(--border);
+      color: var(--text-tertiary);
+    }
+    .send-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* ── Config Panel (above composer) ── */
+    .config-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      font-size: 0.75rem;
+      color: var(--text-tertiary);
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .config-toggle:hover { color: var(--text-secondary); }
+
+    .config-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      display: none;
+    }
+    .config-panel.open { display: block; }
+
+    .config-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+    }
+    .config-row + .config-row {
+      border-top: 1px solid var(--border);
+    }
+
+    .config-role {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      width: 48px;
+      flex-shrink: 0;
+    }
+
+    .config-row select {
+      font-family: inherit;
+      font-size: 0.8125rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.3rem 24px 0.3rem 0.5rem;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e6e73'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+
+    .config-row textarea {
+      flex: 1;
+      min-height: 36px;
+      max-height: 60px;
+      font-size: 0.8125rem;
+    }
+
+    /* ── Synthesis ── */
+    .synth-section { margin-top: 0.5rem; }
+
+    .synth-msg {
+      display: flex;
+      gap: 0.75rem;
+      animation: bubbleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      margin-bottom: 0.5rem;
+    }
+
+    .synth-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--purple), var(--blue));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .synth-bubble {
+      flex: 1;
+      background: linear-gradient(135deg, rgba(88,86,214,0.06), rgba(0,122,255,0.04));
+      border: 1px solid rgba(88,86,214,0.15);
+      border-radius: 4px var(--radius-lg) var(--radius-lg) 4px;
+      padding: 0.875rem 1.125rem;
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.7;
+    }
+    .synth-bubble:empty::after { content: "합성 결과…"; color: var(--text-tertiary); font-style: italic; }
+
+    .synth-btn-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 0.75rem 0 0.5rem;
+    }
+
+    /* ── Refine ── */
+    .refine-section { margin-top: 0.5rem; }
+
+    .refine-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .refine-my {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .refine-my .ai-bubble {
+      background: rgba(0,122,255,0.08);
+      border-color: rgba(0,122,255,0.15);
+      border-radius: var(--radius-lg) 4px 4px var(--radius-lg);
+    }
+
+    .refine-reply {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .refine-reply .ai-bubble {
+      flex: 1;
+    }
+
+    .refine-input-wrap {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+    .refine-input-wrap textarea {
+      flex: 1;
+      min-height: 40px;
+      max-height: 100px;
+    }
+
+    /* ── Vote Section ── */
+    .vote-section { margin-top: 0.5rem; }
+
+    .vote-btn-wrap {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin: 0.5rem 0;
+    }
+
+    .vote-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .vote-msg {
+      display: flex;
+      gap: 0.75rem;
+      animation: bubbleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .vote-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.625rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .vote-bubble {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px var(--radius) var(--radius) 4px;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.875rem;
+      line-height: 1.65;
+    }
+
+    .vote-bubble-header {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .vote-role-label {
+      font-size: 0.625rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.0625rem 0.375rem;
+      border-radius: 980px;
+    }
+
+    .vote-model-label {
+      font-size: 0.625rem;
+      color: var(--text-tertiary);
+    }
+
+    .vote-bubble-body {
+      white-space: pre-wrap;
+    }
+
+    .vote-msg.agree .vote-avatar { background: var(--agree); }
+    .vote-msg.agree .vote-role-label { background: rgba(52,199,89,0.12); color: #1b8a3b; }
+    .vote-msg.oppose .vote-avatar { background: var(--oppose); }
+    .vote-msg.oppose .vote-role-label { background: rgba(255,59,48,0.1); color: #d63027; }
+    .vote-msg.wild .vote-avatar { background: var(--wild); }
+    .vote-msg.wild .vote-role-label { background: rgba(255,149,0,0.12); color: #c97a06; }
+
+    .finalize-section { margin-top: 0.5rem; }
+
+    .finalize-msg {
+      display: flex;
+      gap: 0.75rem;
+      animation: bubbleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .finalize-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--purple), var(--blue));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .finalize-bubble {
+      flex: 1;
+      background: linear-gradient(135deg, rgba(88,86,214,0.06), rgba(0,122,255,0.04));
+      border: 1px solid rgba(88,86,214,0.15);
+      border-radius: 4px var(--radius-lg) var(--radius-lg) 4px;
+      padding: 0.875rem 1.125rem;
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.7;
+    }
+    .finalize-bubble:empty::after { content: "최종 결론…"; color: var(--text-tertiary); font-style: italic; }
+
+    /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
-    .spin { display: inline-block; width: 0.9em; height: 0.9em; border: 2px solid #ddd; border-top-color: #666; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
-    .waiting { color: #888; font-size: 0.85rem; }
+    .spin {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--text-tertiary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: -0.15em;
+      margin-right: 0.375rem;
+    }
+    .waiting { color: var(--text-secondary); font-size: 0.8125rem; }
+
+    /* ── Empty State ── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1rem;
+      text-align: center;
+    }
+    .empty-state-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.25rem;
+    }
+    .empty-state-icon svg {
+      width: 28px;
+      height: 28px;
+      color: #fff;
+    }
+    .empty-state h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.375rem;
+      letter-spacing: -0.02em;
+    }
+    .empty-state p {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      max-width: 320px;
+    }
+
+    .hidden { display: none !important; }
+
+    /* 모드 전환 토글 (팬아웃/릴레이) */
+    .mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-right: 0.5rem; }
+    .mode-switch button { border: none; background: transparent; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; color: var(--text-muted); }
+    .mode-switch button.active { background: var(--purple, #7c3aed); color: #fff; }
+    /* 릴레이 대상 선택 바 */
+    .relay-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.5rem 0.75rem 0; align-items: center; }
+    .relay-bar .relay-hint { font-size: 0.75rem; color: var(--text-muted); margin-right: 0.25rem; }
+    .relay-bar button { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 0.35rem 0.8rem; font-size: 0.82rem; cursor: pointer; font-weight: 600; }
+    .relay-bar button:disabled { opacity: 0.5; cursor: default; }
+    .relay-bar button.relay-extra { border-style: dashed; font-weight: 500; color: var(--text-muted); }
+
+    @media (max-width: 600px) {
+      .settings-grid { grid-template-columns: 1fr; }
+      .config-row { flex-wrap: wrap; }
+      .msg-user-bubble { max-width: 90%; }
+    }
   </style>
 </head>
 <body>
-  <h1>PolyChat <span style="font-size:0.9rem;font-weight:400;color:#888;">감별진단 콘솔</span></h1>
-  <div class="row">상태 <span id="conn">연결 중...</span> <button id="statusBtn">status</button> <button id="resetBtn">초기화</button></div>
 
-  <details id="settings">
-    <summary>설정</summary>
-    <div class="row">
-      <label for="globalNote">전역 메모리 노트</label>
-      <textarea id="globalNote" placeholder="모든 모델 공통 메모..."></textarea>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-brand">
+          <span class="header-title">PolyChat</span>
+          <span class="header-subtitle">세 가지 시선</span>
+        </div>
+        <div class="header-actions">
+          <div class="mode-switch" id="modeSwitch">
+            <button data-mode="fanout" class="active">팬아웃</button>
+            <button data-mode="relay">릴레이</button>
+          </div>
+          <span class="status-dot connecting" id="statusDot"></span>
+          <span class="status-text" id="conn">연결 중...</span>
+          <button id="settingsToggle">설정</button>
+          <button class="btn-danger" id="resetBtn">초기화</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settingsPanel">
+      <div class="settings-grid">
+        <div class="settings-section">
+          <h3>전역 메모</h3>
+          <textarea id="globalNote" rows="3" placeholder="모든 모델에게 전달할 공통 메모..."></textarea>
+          <div style="margin-top:0.5rem">
+            <button id="saveBtn">저장</button>
+            <span class="save-msg" id="saveMsg"></span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>에이전트</h3>
+          <div id="setCards"></div>
+        </div>
+      </div>
     </div>
-    <div id="setCards"></div>
-    <div class="row"><button id="saveBtn">설정 저장</button> <span id="saveMsg"></span></div>
-  </details>
 
-  <!-- 증상 입력 1개. 진단 시작 = 세 컬럼에 동시 전송. -->
-  <div class="composer" id="symptomComposer">
-    <label for="symptom">증상 (질문·맥락)</label>
-    <textarea id="symptom" placeholder="진단받을 증상을 입력하세요..."></textarea>
-    <div class="row"><button id="startBtn">진단 시작</button></div>
+    <!-- Config (role/model mapping) -->
+    <div class="config-toggle" id="configToggle">▼ 역할 설정 ▼</div>
+    <div class="config-panel" id="configPanel"></div>
+
+    <!-- Chat Flow -->
+    <div class="chat-flow" id="chatFlow">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h2>무엇을 고민 중인가요?</h2>
+        <p>코드, 아키텍처, 아이디어 — 세 가지 각도에서 의견을 모아보세요</p>
+      </div>
+    </div>
+
+    <!-- Synthesis (appended to chat flow) -->
+    <div class="synth-section hidden" id="synthWrap">
+      <div class="turn-divider"><span>종합</span></div>
+      <div class="synth-btn-wrap">
+        <button id="synthBtn" class="btn-secondary" disabled>합성하기</button>
+      </div>
+      <div class="synth-msg">
+        <div class="synth-avatar">✦</div>
+        <div class="synth-bubble" id="synthPanel"></div>
+      </div>
+
+      <!-- Vote (MOA 투표 루프) -->
+      <div class="vote-section hidden" id="voteWrap">
+        <div class="turn-divider"><span>투표 — 이의제기</span></div>
+        <div class="vote-btn-wrap">
+          <button id="voteBtn" class="btn-secondary" disabled>투표하기</button>
+        </div>
+        <div class="vote-row" id="voteRow"></div>
+      </div>
+
+      <!-- Finalize (최종 결론) -->
+      <div class="finalize-section hidden" id="finalizeWrap">
+        <div class="turn-divider"><span>최종 결론</span></div>
+        <div class="finalize-msg">
+          <div class="finalize-avatar">✦</div>
+          <div class="finalize-bubble" id="finalizePanel"></div>
+        </div>
+        <div class="refine-section hidden" id="refineWrap">
+          <div class="refine-thread" id="refineThread"></div>
+          <div class="refine-input-wrap">
+            <textarea id="refineInput" rows="2" placeholder="더 생각해볼 점, 반박, 조율..."></textarea>
+            <button id="refineBtn" class="btn-primary">재검토</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="cols" id="cols"></div>
-
-  <div id="synthWrap" style="display:none;">
-    <div class="row"><button id="synthBtn" disabled>Claude 합성 (가설 + 레드팀)</button></div>
-    <div id="synthPanel"></div>
-    <!-- 재반박 루프: 합성 결과를 보고 의견을 조율·반박하면 같은 대화를 이어 재반박을 받는다. -->
-    <div id="refineWrap" style="display:none; margin-top:0.8rem;">
-      <div id="refineThread"></div>
-      <textarea id="refineInput" placeholder="합성 결과에 반박·조율 의견을 적고 재반박 받기..."></textarea>
-      <div class="row"><button id="refineBtn">재반박 받기</button></div>
+  <!-- Fixed Bottom Composer -->
+  <div class="composer">
+    <div class="relay-bar hidden" id="relayBar"></div>
+    <div class="composer-inner">
+      <textarea id="symptom" rows="1" placeholder="고민되는 것을 적어보세요... (Enter=전송)"></textarea>
+      <button class="send-btn" id="startBtn" title="전송">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
     </div>
   </div>
 
   <script>
+    // ── DOM refs ──
     const conn = document.getElementById("conn");
+    const statusDot = document.getElementById("statusDot");
+    const settingsToggle = document.getElementById("settingsToggle");
+    const settingsPanel = document.getElementById("settingsPanel");
     const setCards = document.getElementById("setCards");
     const globalNote = document.getElementById("globalNote");
     const saveMsg = document.getElementById("saveMsg");
-    const colsEl = document.getElementById("cols");
+    const chatFlow = document.getElementById("chatFlow");
+    const emptyState = document.getElementById("emptyState");
+    const configToggle = document.getElementById("configToggle");
+    const configPanel = document.getElementById("configPanel");
     const synthWrap = document.getElementById("synthWrap");
     const synthBtn = document.getElementById("synthBtn");
     const synthPanel = document.getElementById("synthPanel");
+    const voteWrap = document.getElementById("voteWrap");
+    const voteBtn = document.getElementById("voteBtn");
+    const voteRow = document.getElementById("voteRow");
+    const finalizeWrap = document.getElementById("finalizeWrap");
+    const finalizePanel = document.getElementById("finalizePanel");
     const refineWrap = document.getElementById("refineWrap");
     const refineThread = document.getElementById("refineThread");
     const refineInput = document.getElementById("refineInput");
     const refineBtn = document.getElementById("refineBtn");
-    let curRefineBody = null;  // 스트리밍 중인 재반박 응답 블록
+    const symptom = document.getElementById("symptom");
+    const startBtn = document.getElementById("startBtn");
+    let curRefineBody = null;
 
     let agents = [];
     let roles = [];
-    let savedColumns = {};   // {roleId: {model, prompt}} 사용자 수정값. 비면 config 템플릿 사용.
-    const SYNTH_AGENT = "claude";  // 합성 담당 모델(브리프: Claude가 합성)
-    // 역할 컬럼 고정 순서 + 기본 모델. 매핑은 컬럼 드롭다운에서 매번 변경 가능.
+    let savedColumns = {};
+    const SYNTH_AGENT = "claude";
+
     const COL_DEFS = [
-      { roleId: "agree",  defModel: "claude" },
-      { roleId: "oppose", defModel: "chatgpt" },
-      { roleId: "wild",   defModel: "gemini" },
+      { roleId: "agree",  defModel: "claude", label: "찬성", avatar: "찬" },
+      { roleId: "oppose", defModel: "chatgpt", label: "부정", avatar: "부" },
+      { roleId: "wild",   defModel: "gemini", label: "엉뚱", avatar: "엉" },
     ];
 
-    let columns = [];          // {roleId, modelSel, promptTa, body, colEl, turnId, text, done}
-    const byTurn = {};         // turn_id -> column
+    let columns = [];
+    const byTurn = {};
+    const byVote = {};
     let started = false;
+    let turnCount = 0;
+    let currentSynthText = "";
 
-    const spinnerHTML = () => '<span class="spin"></span> <span class="waiting">응답 대기중…</span>';
+    // ── 릴레이 모드 상태 ──
+    // mode: "fanout"(병렬 팬아웃) | "relay"(사용자가 LLM을 골라 순차 대화)
+    let mode = "fanout";
+    // transcript: 릴레이 전역 대화 로그. {speaker:'user'|slotIdx, label, text}
+    const transcript = [];
+    // relaySeen[slotIdx] = 그 슬롯이 마지막으로 본 transcript 인덱스. 이후 항목만 델타로 전달.
+    const relaySeen = {};
+    let relayBusy = false;
+    const relayBar = document.getElementById("relayBar");
+    const modeSwitch = document.getElementById("modeSwitch");
+
+    // ── Helpers ──
+    const spinnerHTML = () => '<span class="spin"></span><span class="waiting">응답 대기중…</span>';
     const agentMeta = (id) => agents.find(a => a.id === id) || { display_name: id, color: "#888" };
     const roleMeta = (id) => roles.find(r => r.id === id) || { label: id, prompt: "" };
     const enabledAgents = () => agents.filter(a => a.enabled);
@@ -126,110 +922,327 @@
       return sel;
     };
 
-    // settings 수신 후 3 역할 컬럼을 그린다.
-    const renderColumns = () => {
-      colsEl.innerHTML = "";
-      columns = [];
-      for (const def of COL_DEFS) {
-        const rm = roleMeta(def.roleId);
-        const ov = savedColumns[def.roleId] || {};   // 사용자 수정값 우선, 없으면 템플릿
-        const colEl = document.createElement("div");
-        colEl.className = "col";
+    // ── Auto-resize textarea ──
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+    symptom.addEventListener('input', () => autoResize(symptom));
+    refineInput.addEventListener('input', () => autoResize(refineInput));
 
-        const head = document.createElement("div");
-        head.className = "col-head";
-        const badge = document.createElement("span");
-        badge.className = "role-badge";
-        badge.textContent = rm.label;
+    // ── Status indicator ──
+    function updateStatus(text, state) {
+      conn.textContent = text;
+      statusDot.className = "status-dot " + (state || "");
+    }
+
+    // ── Render config panel ──
+    const renderConfig = () => {
+      configPanel.innerHTML = "";
+      for (const def of COL_DEFS) {
+        const ov = savedColumns[def.roleId] || {};
+        const row = document.createElement("div");
+        row.className = "config-row";
+
+        const roleLabel = document.createElement("span");
+        roleLabel.className = "config-role";
+        roleLabel.style.color = `var(--${def.roleId})`;
+        roleLabel.textContent = def.label;
+
         const modelSel = buildModelSelect(ov.model || def.defModel);
-        head.appendChild(badge);
-        head.appendChild(modelSel);
 
         const promptTa = document.createElement("textarea");
-        promptTa.className = "role-prompt";
-        promptTa.value = (typeof ov.prompt === "string") ? ov.prompt : rm.prompt;
+        promptTa.rows = 1;
+        promptTa.value = (typeof ov.prompt === "string") ? ov.prompt : roleMeta(def.roleId).prompt;
+        promptTa.placeholder = "역할 프롬프트 (편집 가능)";
+        promptTa.style.minHeight = "36px";
+        promptTa.style.maxHeight = "60px";
 
-        modelSel.onchange = saveColumns;
-        promptTa.onchange = saveColumns;
+        const onChange = () => {
+          savedColumns[def.roleId] = { model: modelSel.value, prompt: promptTa.value };
+          ws.send(JSON.stringify({ type: "save_settings", columns: savedColumns }));
+        };
+        modelSel.onchange = onChange;
+        promptTa.onchange = onChange;
 
-        const body = document.createElement("div");
-        body.className = "col-body";
-
-        colEl.appendChild(head);
-        colEl.appendChild(promptTa);
-        colEl.appendChild(body);
-        colsEl.appendChild(colEl);
-
-        columns.push({ roleId: def.roleId, modelSel, promptTa, body, colEl,
-                       turnId: null, text: "", done: false });
+        row.appendChild(roleLabel);
+        row.appendChild(modelSel);
+        row.appendChild(promptTa);
+        configPanel.appendChild(row);
       }
     };
 
-    // 컬럼(모델·프롬프트) 수정 시 즉시 settings.json에 저장한다. 다음 실행 때 그대로 불러온다.
-    const saveColumns = () => {
-      const columns_payload = {};
-      for (const c of columns) {
-        columns_payload[c.roleId] = { model: c.modelSel.value, prompt: c.promptTa.value };
+    // ── Add turn to chat ──
+    const addTurnToChat = (userText) => {
+      // Hide empty state
+      emptyState.classList.add("hidden");
+
+      // User message
+      const userMsg = document.createElement("div");
+      userMsg.className = "msg-user";
+      userMsg.innerHTML = `<div class="msg-user-bubble">${escapeHtml(userText)}</div>`;
+      chatFlow.appendChild(userMsg);
+
+      // AI responses container
+      const aiResp = document.createElement("div");
+      aiResp.className = "ai-responses";
+
+      // Create each AI message
+      for (let i = 0; i < COL_DEFS.length; i++) {
+        const def = COL_DEFS[i];
+        const c = columns[i];
+        const meta = agentMeta(c.modelSel.value);
+
+        const msg = document.createElement("div");
+        msg.className = `msg-ai ${def.roleId}`;
+        msg.style.animationDelay = (i * 0.1) + "s";
+
+        msg.innerHTML = `
+          <div class="ai-avatar">${def.avatar}</div>
+          <div class="ai-bubble">
+            <div class="ai-bubble-header">
+              <span class="ai-role-label">${def.label}</span>
+              <span class="ai-model-label">${meta.display_name || c.modelSel.value}</span>
+            </div>
+            <div class="ai-bubble-body"></div>
+          </div>`;
+
+        aiResp.appendChild(msg);
+        c.body = msg.querySelector(".ai-bubble-body");
       }
-      savedColumns = columns_payload;
-      ws.send(JSON.stringify({ type: "save_settings", columns: columns_payload }));
+
+      chatFlow.appendChild(aiResp);
     };
 
+    const escapeHtml = (s) => {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    };
+
+    // ── Add divider ──
+    const addDivider = (label) => {
+      const div = document.createElement("div");
+      div.className = "turn-divider";
+      div.innerHTML = `<span>${label}</span>`;
+      chatFlow.appendChild(div);
+    };
+
+    // ── Start ──
     const startDiagnosis = () => {
-      const symptom = document.getElementById("symptom").value.trim();
-      if (!symptom || started) return;
+      const text = symptom.value.trim();
+      if (!text || started) return;
+
+      turnCount++;
+      started = true;
+      startBtn.disabled = true;
+      symptom.disabled = true;
+
       const models = columns.map(c => c.modelSel.value);
       if (new Set(models).size !== models.length) {
-        alert("같은 모델을 두 컬럼에 쓰면 한 대화에 섞여 오염돼. 역할마다 다른 모델을 골라줘.");
+        alert("같은 모델을 두 역할에 쓰면 한 대화에 섞여 오염돼. 역할마다 다른 모델을 골라줘.");
+        started = false;
+        startBtn.disabled = false;
+        symptom.disabled = false;
         return;
       }
-      started = true;
-      document.getElementById("startBtn").disabled = true;
-      document.getElementById("symptom").disabled = true;
-      synthWrap.style.display = "";
 
-      for (const c of columns) {
+      addTurnToChat(text);
+
+      for (let i = 0; i < columns.length; i++) {
+        const c = columns[i];
         c.turnId = crypto.randomUUID();
         c.text = ""; c.done = false;
-        c.modelSel.disabled = true; c.promptTa.disabled = true;
+        c.modelSel.disabled = true;
         byTurn[c.turnId] = c;
-        const meta = agentMeta(c.modelSel.value);
-        c.colEl.style.borderTopColor = meta.color || "#888";
-        c.body.parentElement.querySelector(".role-badge").style.background = meta.color || "#888";
-        c.body.innerHTML = spinnerHTML();   // 응답 올 때까지 대기 표시
+        c.body.innerHTML = spinnerHTML();
         ws.send(JSON.stringify({ type: "send", agent: c.modelSel.value,
-                                 role_prompt: c.promptTa.value, content: symptom,
-                                 turn_id: c.turnId }));
+                                 role_prompt: c.promptTa ? c.promptTa.value : savedColumns[COL_DEFS[i].roleId]?.prompt || "",
+                                 content: text, turn_id: c.turnId }));
       }
     };
 
-    // 세 컬럼이 모두 끝나면 합성 버튼을 연다.
     const maybeEnableSynth = () => {
-      if (columns.every(c => c.done)) synthBtn.disabled = false;
+      if (columns.every(c => c.done)) {
+        synthBtn.disabled = false;
+        synthWrap.classList.remove("hidden");
+        synthWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     };
 
+    const finishTurn = () => {
+      started = false;
+      startBtn.disabled = false;
+      symptom.disabled = false;
+      symptom.value = "";
+      symptom.focus();
+      autoResize(symptom);
+    };
+
+    // ── Settings cards ──
     const renderSetCards = () => {
       setCards.innerHTML = "";
       for (const a of agents) {
         const card = document.createElement("div");
         card.className = "set-card";
-        card.style.borderLeftColor = a.color || "#888";
         card.innerHTML = `
-          <div class="head">
-            <input type="checkbox" data-id="${a.id}" class="enabled" ${a.enabled ? "checked" : ""}>
-            <span>${a.display_name}</span>
-          </div>`;
+          <input type="checkbox" data-id="${a.id}" class="enabled" ${a.enabled ? "checked" : ""}>
+          <span>${a.display_name}</span>`;
         setCards.appendChild(card);
       }
     };
 
+    // ── 릴레이 모드 ──
+    // 슬롯의 화자 라벨. 예: "찬성·Claude". 델타에서 다른 화자를 구분하는 데 쓴다.
+    const relayLabel = (slotIdx) => {
+      const c = columns[slotIdx];
+      const meta = agentMeta(c.modelSel.value);
+      return `${COL_DEFS[slotIdx].label}·${meta.display_name || c.modelSel.value}`;
+    };
+
+    // 슬롯이 마지막으로 본 이후의 transcript 항목만 라벨 붙여 이어붙인다(자기 응답은 인덱스로 제외됨).
+    const relayDelta = (slotIdx) => {
+      const from = (relaySeen[slotIdx] === undefined) ? -1 : relaySeen[slotIdx];
+      const parts = [];
+      for (let i = from + 1; i < transcript.length; i++) {
+        const t = transcript[i];
+        const label = t.speaker === "user" ? "나" : t.label;
+        parts.push(`[${label}] ${t.text}`);
+      }
+      return parts.join("\n\n");
+    };
+
+    // 릴레이 대상 선택 바를 그린다. 슬롯(역할·모델)마다 버튼 1개 + 합성 버튼.
+    const renderRelayBar = () => {
+      relayBar.innerHTML = "";
+      const hint = document.createElement("span");
+      hint.className = "relay-hint";
+      hint.textContent = "→ 누구에게 보낼까";
+      relayBar.appendChild(hint);
+      for (let i = 0; i < columns.length; i++) {
+        const btn = document.createElement("button");
+        btn.textContent = relayLabel(i);
+        btn.style.color = `var(--${COL_DEFS[i].roleId})`;
+        btn.disabled = relayBusy;
+        btn.onclick = () => relaySend(i);
+        relayBar.appendChild(btn);
+      }
+      const synth = document.createElement("button");
+      synth.className = "relay-extra";
+      synth.textContent = "합성";
+      synth.disabled = relayBusy || transcript.filter(t => t.speaker !== "user").length < 2;
+      synth.onclick = relaySynthesize;
+      relayBar.appendChild(synth);
+    };
+
+    const switchMode = (m) => {
+      mode = m;
+      modeSwitch.querySelectorAll("button").forEach(b =>
+        b.classList.toggle("active", b.dataset.mode === m));
+      const relay = m === "relay";
+      relayBar.classList.toggle("hidden", !relay);
+      startBtn.classList.toggle("hidden", relay);  // 팬아웃 전송(비행기) 버튼 숨김
+      if (relay) renderRelayBar();
+    };
+
+    // 릴레이: 사용자 입력(있으면)을 로그에 넣고, 선택 슬롯에 델타를 전달한다.
+    const relaySend = (slotIdx) => {
+      if (relayBusy) return;
+      const text = symptom.value.trim();
+      if (text) { transcript.push({ speaker: "user", text }); relayAddUser(text); }
+
+      const delta = relayDelta(slotIdx);
+      if (!delta.trim()) { alert("전달할 새 내용이 없어. 먼저 메시지를 입력하거나 다른 LLM의 응답을 받아."); return; }
+
+      const c = columns[slotIdx];
+      const first = relaySeen[slotIdx] === undefined;
+      const tid = crypto.randomUUID();
+      const body = relayAddReply(slotIdx);
+      const turnObj = { relay: true, slotIdx, body, text: "", done: false };
+      byTurn[tid] = turnObj;
+
+      relayBusy = true;
+      symptom.value = ""; autoResize(symptom);
+      symptom.disabled = true;
+      renderRelayBar();
+
+      ws.send(JSON.stringify({
+        type: "send", agent: c.modelSel.value,
+        role_prompt: first ? (c.promptTa ? c.promptTa.value : "") : "",
+        content: delta, turn_id: tid,
+      }));
+    };
+
+    // 릴레이 응답 완료 시 로그에 기록하고 그 슬롯의 seen 인덱스를 갱신한다.
+    const relayDone = (turnObj, replyText) => {
+      transcript.push({ speaker: turnObj.slotIdx, label: relayLabel(turnObj.slotIdx), text: replyText });
+      relaySeen[turnObj.slotIdx] = transcript.length - 1;
+      relayBusy = false;
+      symptom.disabled = false;
+      symptom.focus();
+      renderRelayBar();
+    };
+
+    // 릴레이 합성: 각 슬롯의 최신 응답을 모아 기존 synthesize 핸들러로 보낸다.
+    const relaySynthesize = () => {
+      const responses = [];
+      for (let i = 0; i < columns.length; i++) {
+        for (let j = transcript.length - 1; j >= 0; j--) {
+          if (transcript[j].speaker === i) {
+            responses.push({ model: columns[i].modelSel.value, role: COL_DEFS[i].label, text: transcript[j].text });
+            break;
+          }
+        }
+      }
+      if (responses.length < 2) return;
+      synthWrap.classList.remove("hidden");
+      synthPanel.innerHTML = spinnerHTML();
+      synthWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+      const firstUser = transcript.find(t => t.speaker === "user");
+      ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT,
+                               symptom: firstUser ? firstUser.text : "", responses }));
+    };
+
+    // 릴레이 DOM 렌더링 (chatFlow 재사용)
+    const relayAddUser = (text) => {
+      emptyState.classList.add("hidden");
+      const el = document.createElement("div");
+      el.className = "msg-user";
+      el.innerHTML = `<div class="msg-user-bubble">${escapeHtml(text)}</div>`;
+      chatFlow.appendChild(el);
+      el.scrollIntoView({ behavior: "smooth", block: "end" });
+    };
+    const relayAddReply = (slotIdx) => {
+      emptyState.classList.add("hidden");
+      const def = COL_DEFS[slotIdx];
+      const c = columns[slotIdx];
+      const meta = agentMeta(c.modelSel.value);
+      const wrap = document.createElement("div");
+      wrap.className = "ai-responses";
+      wrap.innerHTML = `
+        <div class="msg-ai ${def.roleId}">
+          <div class="ai-avatar">${def.avatar}</div>
+          <div class="ai-bubble">
+            <div class="ai-bubble-header">
+              <span class="ai-role-label">${def.label}</span>
+              <span class="ai-model-label">${meta.display_name || c.modelSel.value}</span>
+            </div>
+            <div class="ai-bubble-body">${spinnerHTML()}</div>
+          </div>
+        </div>`;
+      chatFlow.appendChild(wrap);
+      wrap.scrollIntoView({ behavior: "smooth", block: "end" });
+      return wrap.querySelector(".ai-bubble-body");
+    };
+
+    // ── WebSocket ──
     const ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => {
-      conn.textContent = "연결됨";
+      updateStatus("연결됨", "connected");
       ws.send(JSON.stringify({ type: "status" }));
       ws.send(JSON.stringify({ type: "get_settings" }));
     };
-    ws.onclose = () => { conn.textContent = "연결 끊김"; };
+    ws.onclose = () => updateStatus("연결 끊김", "disconnected");
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "settings") {
@@ -237,8 +1250,19 @@
         savedColumns = msg.columns || {};
         globalNote.value = msg.global_note || "";
         renderSetCards();
-        renderColumns();
+        renderConfig();
+        // Build columns from config (no longer use DOM elements for modelSel/promptTa during send)
+        columns = COL_DEFS.map((def, i) => {
+          const ov = savedColumns[def.roleId] || {};
+          return {
+            roleId: def.roleId,
+            modelSel: { value: ov.model || def.defModel, disabled: false },
+            promptTa: { value: ov.prompt || roleMeta(def.roleId).prompt, disabled: false },
+            body: null, turnId: null, text: "", done: false
+          };
+        });
         saveMsg.textContent = "불러옴";
+        if (mode === "relay") renderRelayBar();  // 슬롯 라벨(모델명) 갱신
         return;
       }
       if (msg.type === "chunk") {
@@ -250,15 +1274,70 @@
         const c = byTurn[msg.turn_id];
         if (c) {
           c.text = msg.text || "";
-          c.body.textContent = c.text || "(빈 응답)";   // 스피너 제거
+          c.body.textContent = c.text || "(빈 응답)";
           c.done = true;
+          if (c.relay) { relayDone(c, c.text); return; }
           maybeEnableSynth();
+          if (columns.every(col => col.done)) finishTurn();
         }
         return;
       }
-      if (msg.type === "synthesis_chunk" || msg.type === "synthesis_done") {
+      if (msg.type === "synthesis_chunk") {
         if (msg.text) synthPanel.textContent = msg.text;
-        if (msg.type === "synthesis_done") refineWrap.style.display = "";
+        return;
+      }
+      if (msg.type === "synthesis_done") {
+        if (msg.text) synthPanel.textContent = msg.text;
+        voteWrap.classList.remove("hidden");
+        voteBtn.disabled = false;
+        voteWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (msg.type === "vote_chunk") {
+        const vc = byVote[msg.turn_id];
+        if (vc && msg.text) vc.body.textContent = msg.text;
+        return;
+      }
+      if (msg.type === "vote_done") {
+        const vc = byVote[msg.turn_id];
+        if (vc) {
+          vc.text = msg.text || "";
+          vc.body.textContent = vc.text || "(빈 응답)";
+          vc.done = true;
+        }
+        return;
+      }
+      if (msg.type === "vote_round_complete") {
+        const voteTexts = Object.values(byVote).filter(v => v.done).map(v => ({
+          model: v.modelId,
+          text: v.text,
+        }));
+        // Show finalize button
+        finalizeWrap.classList.remove("hidden");
+        const btnWrap = document.createElement("div");
+        btnWrap.className = "vote-btn-wrap";
+        btnWrap.innerHTML = `<button id="finalizeBtn" class="btn-secondary">최종 결론</button>`;
+        voteRow.appendChild(btnWrap);
+        document.getElementById("finalizeBtn").onclick = () => {
+          btnWrap.innerHTML = spinnerHTML();
+          const voteResponses = Object.values(byVote).filter(v => v.done).map(v => ({
+            model: v.modelId,
+            text: v.text,
+          }));
+          const synthText = synthPanel.textContent || "";
+          ws.send(JSON.stringify({ type: "finalize", agent: SYNTH_AGENT,
+                                   synthesis: synthText, vote_responses }));
+        };
+        finalizeWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (msg.type === "finalize_chunk") {
+        if (msg.text) finalizePanel.textContent = msg.text;
+        return;
+      }
+      if (msg.type === "finalize_done") {
+        if (msg.text) finalizePanel.textContent = msg.text;
+        refineWrap.classList.remove("hidden");
         return;
       }
       if (msg.type === "refine_chunk" || msg.type === "refine_done") {
@@ -269,46 +1348,100 @@
       if (msg.type === "reset_done") { location.reload(); return; }
       if (msg.type === "error") {
         const c = byTurn[msg.turn_id];
-        if (c) {
-          c.colEl.classList.add("error");
-          c.body.textContent = "⚠ " + (msg.message || "오류");
+        if (c && c.relay) {
+          c.body.textContent = "오류: " + (msg.message || "");
+          relayBusy = false; symptom.disabled = false; renderRelayBar();
+        } else if (c) {
+          c.body.textContent = "오류: " + (msg.message || "");
           c.done = true;
           maybeEnableSynth();
+          if (columns.every(col => col.done)) finishTurn();
         } else if (curRefineBody) {
-          curRefineBody.textContent = "⚠ " + (msg.message || "오류");
-          curRefineBody = null; refineBtn.disabled = false; refineInput.disabled = false;
+          curRefineBody.textContent = "오류: " + (msg.message || "");
+          curRefineBody = null;
+          refineBtn.disabled = false;
+          refineInput.disabled = false;
         } else {
-          synthPanel.textContent = "⚠ " + (msg.message || "오류");
+          synthPanel.textContent = "오류: " + (msg.message || "");
         }
         return;
       }
     };
 
-    document.getElementById("statusBtn").onclick = () =>
-      ws.send(JSON.stringify({ type: "status" }));
-    // 서버 대화 컨텍스트까지 초기화한 뒤 페이지를 리로드한다(reset_done 수신 시).
-    document.getElementById("resetBtn").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
-    document.getElementById("startBtn").onclick = startDiagnosis;
-
-    // Enter=전송, Shift+Enter=줄바꿈. 증상창·재반박창 공통.
-    const enterToSend = (el, fn) => el.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); fn(); }
+    // ── Event bindings ──
+    settingsToggle.addEventListener("click", () => {
+      const isOpen = settingsPanel.classList.toggle("open");
     });
-    enterToSend(document.getElementById("symptom"), startDiagnosis);
-    enterToSend(refineInput, () => refineBtn.onclick());
+
+    configToggle.addEventListener("click", () => {
+      const isOpen = configPanel.classList.toggle("open");
+      configToggle.textContent = isOpen ? "▲ 역할 설정 ▲" : "▼ 역할 설정 ▼";
+    });
+
+    startBtn.onclick = startDiagnosis;
+    modeSwitch.querySelectorAll("button").forEach(b =>
+      b.addEventListener("click", () => switchMode(b.dataset.mode)));
+    document.getElementById("resetBtn").onclick = () => ws.send(JSON.stringify({ type: "reset" }));
+
+    // Vote button
+    voteBtn.onclick = () => {
+      voteBtn.disabled = true;
+      currentSynthText = synthPanel.textContent || "";
+      const aids = columns.map(c => c.modelSel.value);
+      const voteTurnId = crypto.randomUUID();
+      // Create vote message bubbles
+      for (let i = 0; i < COL_DEFS.length; i++) {
+        const def = COL_DEFS[i];
+        const c = columns[i];
+        const meta = agentMeta(c.modelSel.value);
+        const msg = document.createElement("div");
+        msg.className = `vote-msg ${def.roleId}`;
+        msg.style.animationDelay = (i * 0.1) + "s";
+        msg.innerHTML = `
+          <div class="vote-avatar">${def.avatar}</div>
+          <div class="vote-bubble">
+            <div class="vote-bubble-header">
+              <span class="vote-role-label">${def.label}</span>
+              <span class="vote-model-label">${meta.display_name || c.modelSel.value}</span>
+            </div>
+            <div class="vote-bubble-body">${spinnerHTML()}</div>
+          </div>`;
+        voteRow.appendChild(msg);
+        const tid = `${voteTurnId}-${c.modelSel.value}`;
+        byVote[tid] = {
+          body: msg.querySelector(".vote-bubble-body"),
+          modelId: c.modelSel.value,
+          text: "", done: false,
+        };
+      }
+      ws.send(JSON.stringify({ type: "vote", agents: aids,
+                               round: 1, synthesis: currentSynthText,
+                               vote_turn_id: voteTurnId }));
+    };
+
+    // Enter to send
+    symptom.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (mode === "fanout") startDiagnosis();  // 릴레이는 대상 버튼으로만 전송
+      }
+    });
+    refineInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); refineBtn.click(); }
+    });
 
     refineBtn.onclick = () => {
       const text = refineInput.value.trim();
       if (!text) return;
       const mine = document.createElement("div");
-      mine.style.cssText = "white-space:pre-wrap;font-size:0.9rem;margin:0.5rem 0;padding:0.4rem 0.6rem;background:#eef;border-radius:6px;";
-      mine.textContent = "나: " + text;
+      mine.className = "refine-my";
+      mine.innerHTML = `<div class="ai-bubble">나: ${escapeHtml(text)}</div>`;
       const reply = document.createElement("div");
-      reply.style.cssText = "white-space:pre-wrap;font-size:0.92rem;line-height:1.55;margin:0.3rem 0 0.6rem;";
-      reply.innerHTML = spinnerHTML();   // 재반박 대기 표시
+      reply.className = "refine-reply";
+      reply.innerHTML = `<div class="ai-avatar" style="background:var(--purple)">✦</div><div class="ai-bubble"><div class="ai-bubble-body">${spinnerHTML()}</div></div>`;
       refineThread.appendChild(mine);
       refineThread.appendChild(reply);
-      curRefineBody = reply;
+      curRefineBody = reply.querySelector(".ai-bubble-body");
       refineBtn.disabled = true; refineInput.disabled = true;
       refineInput.value = "";
       ws.send(JSON.stringify({ type: "refine", agent: SYNTH_AGENT, content: text }));
@@ -316,12 +1449,12 @@
 
     synthBtn.onclick = () => {
       synthBtn.disabled = true;
-      synthPanel.innerHTML = spinnerHTML();   // 합성 대기 표시
-      const responses = columns.map(c => ({
-        model: c.modelSel.value, role: roleMeta(c.roleId).label, text: c.text,
+      synthPanel.innerHTML = spinnerHTML();
+      const responses = columns.map((c, i) => ({
+        model: c.modelSel.value, role: COL_DEFS[i].label, text: c.text,
       }));
-      const symptom = document.getElementById("symptom").value.trim();
-      ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT, symptom, responses }));
+      const symptomText = symptom.value.trim();
+      ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT, symptom: symptomText, responses }));
     };
 
     document.getElementById("saveBtn").onclick = () => {
@@ -331,6 +1464,7 @@
       });
       ws.send(JSON.stringify(payload));
       saveMsg.textContent = "저장됨";
+      setTimeout(() => { saveMsg.textContent = ""; }, 2000);
     };
   </script>
 </body>
