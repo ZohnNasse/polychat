@@ -93,27 +93,25 @@ Why: agents read files selectively, not whole codebases. A one-line Korean heade
 
 If the user gives only a plan and asks you to start coding, stop and ask: "Should I create the checklist and context notes first?" The next session — yours or someone else's — needs the notes to pick up where you left off without re-deriving every decision.
 
-## 8. Run Tests Before Marking Complete
+## 8. Verify Before Marking Complete
 
-**If you touched code, run the tests before saying "done".**
+**If you touched code, verify it before saying "done". 이 프로젝트는 테스트 스위트가 없다.**
 
-- `npm test`, `pytest`, `cargo test`, whatever the project uses — run it.
-- If tests pass, report results. If they fail, fix and re-run.
-- No test setup? At minimum, verify the project builds/compiles.
-- Run tests proactively, before the user signals "끝", "완료", "다 됐어" — not after.
+- 실행은 `python main.py` (+ `.venv`). npm 아님 — 헷갈리지 말 것.
+- 자동 테스트가 없으므로 최소 구문검증으로 대신한다. 파이썬은 `python -m py_compile <파일>`, 프론트(`static/index.html`)는 `node --check` 또는 스크립트 추출 검증.
+- config·스크래퍼·서버 코드를 바꾸면 **서버 재시작이 필요하다는 사실을 항상 명시**한다(변경이 자동 반영되지 않음).
+- 유저가 "끝", "완료", "다 됐어" 신호를 보내기 전에 선제적으로 검증한다.
 
 This is the step LLMs skip most often. Treat it as non-negotiable.
 
-## 9. Semantic Commits
+## 9. Semantic Commits (에이전트는 커밋을 직접 실행하지 않는다)
 
-**Commit when one logical change is complete. Don't wait for the user to ask.**
+**이 샌드박스 환경에서는 git 커밋·push·localhost 접근이 불가능하다.** 따라서 에이전트는 커밋을 대신 실행하려 하지 말고, 논리 단위가 끝날 때마다 **정확한 `git add/commit/push` 명령을 사용자에게 건넨다.**
 
-- The test: "Can I describe this commit in one sentence?" If yes, commit. If no, the changes are still mixed — split them.
-- Good: "auth 미들웨어 추가". Bad: "auth 추가하고 UI도 고치고 버그도 수정" (split into 3).
-- Don't accumulate 20 unrelated edits and lose the ability to roll back individually.
-- Don't commit just to commit — meaningful units only.
-
-Note: For solo prototypes or throwaway scripts, group commits loosely if it slows you down. The point is reversibility, not ceremony.
+- 커밋 단위 기준은 동일하다. "한 문장으로 설명되는가?" Yes면 한 커밋, No면 섞인 것 — 쪼갠다.
+- Good: "auth 미들웨어 추가". Bad: "auth 추가하고 UI도 고치고 버그도 수정"(3개로 분리).
+- 여러 변경을 한 덩어리로 뭉쳐 롤백 불가능하게 만들지 말 것.
+- 명령은 한 줄씩 정확히 준다. 여러 줄을 붙여넣다 rebase가 꼬이지 않게 단계별로 안내한다.
 
 ## 10. Read Errors, Don't Guess
 
