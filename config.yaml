@@ -4,8 +4,8 @@ server:
   host: "0.0.0.0"
   port: 7777
   browser_mode: "cdp"         # "cdp"=실행 중인 Chrome에 접속(권장), "persistent"=영구 프로필 직접 기동
-  cdp_url: "http://localhost:9222"
-  cdp_auto_launch: true       # cdp 모드: 9222에 Chrome이 없으면 전용 프로필(profiles/cdp)로 직접 띄운다
+  cdp_url: "http://localhost:9223"   # polychat 전용 포트. 9222는 에이전트 AI가 점유 중이라 분리한다
+  cdp_auto_launch: true       # cdp 모드: 위 포트에 Chrome이 없으면 전용 프로필(profiles/cdp)로 직접 띄운다
   chrome_path: ""             # 비우면 자동 탐지(/Applications/Google Chrome.app...). 다르면 직접 지정
   headless: false
   browser_channel: "chrome"   # persistent 모드에서만 사용. Chrome 미설치 시 "" 로 두면 번들 Chromium
