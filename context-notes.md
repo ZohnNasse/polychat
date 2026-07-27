@@ -2,6 +2,20 @@
 
 작업 중 내린 결정과 그 이유를 누적 기록한다. 다음 세션이 재추론 없이 이어가기 위함이다.
 
+## 2026-07-28 회의 테이블 UI (동결 일부 해제, 프론트 전용)
+
+배경. 세로 스크롤 대화 표시가 세 화자를 한눈에 보기 어려웠다. 사용자가 회의 테이블 구도를 요청했다(캐릭터+말풍선+아래 방향키로 이전 발언 페이징+말풍선 내부 스크롤). 팬아웃·릴레이 둘 다 적용.
+
+핵심 결정. 표시(display)만 바꾸고 전송·릴레이·합성·투표 로직과 백엔드·config는 건드리지 않는다. 위험을 표시층에 가둔다. 좌석은 3개 고정, 화자별 발언 이력 `histories[slot]`에 자기 발언만 쌓아 `‹ n/N ›`로 페이징(다른 화자 발언과 안 섞임). chunk/done은 turn_id→{slotIdx,uttIdx} 매핑으로 해당 발언에 흘려보낸다.
+
+아바타. 메시지마다 이미지 생성은 느리고 일관성이 없어 배제. 모델당 고정 인라인 SVG(브랜드색 머리+어깨, 가슴 엠블럼 claude=별/chatgpt=고리/gemini=마름모)를 좌석에 앉히고 말풍선 텍스트만 갱신. 모델 스왑 시 buildSeats가 아바타/이름만 다시 그리고 이력은 유지.
+
+제거한 것. 옛 세로 렌더 함수 addTurnToChat·relayAddUser·relayAddReply를 삭제(내 변경으로 고아가 됨). byTurn 값이 컬럼/turnObj 객체 → {slotIdx,uttIdx,relay}로 통일.
+
+검증. 스크립트 추출 후 node --check 통과. 서버 재기동 불필요(index.html 정적 서빙, 브라우저 새로고침만). 시각 확인은 사용자 몫.
+
+미해결. 전역메모 "간결하게"가 실제 전달 안 되던 문제는 B안(priming) 서버 재기동 후 재확인 필요. priming 1회 주입이 약하면 매 턴 접미로 보강 검토.
+
 ## 환경
 
 - 작업 위치는 `~/workspace/polychat`. 처음엔 Google Drive 동기화 폴더였으나, git lock 충돌과 sandbox 마운트 권한 문제로 로컬로 이전했다.
@@ -140,3 +154,11 @@
 - 조치. 반환 전 `cached.page.is_closed()` 검사 → 닫혔으면 캐시 버리고 새 탭 생성. 단 `conversation_url`은 보존해 재생성 시 원래 대화로 복귀(기억 연속성 유지). 팬아웃/릴레이 공통 적용.
 - 한계. Chrome 창 전체가 닫혀 컨텍스트까지 죽은 경우는 여전히 재시작 필요(드문 케이스라 미대응).
 - 대안 검토·기각. 헤드리스 상시 백그라운드 → 실제 Chrome 로그인 세션 상실 + 봇탐지 상승 리스크. 판정 단계에선 부적절. 대신 전용 프로필(profiles/cdp) 분리 창 운영 권장.
+
+## 2026-07-27 전역메모+페르소나 priming 주입 (B안, 동결 일부 해제)
+- 배경. (1) 전역메모(global_note)가 어디에도 주입되지 않고 있었다. (2) 릴레이 페르소나는 첫 턴 role_prompt로 본문에 인라인 주입돼, 탭이 닫혀 대화가 새로 열리면(복구) 사라졌다. 사용자 승인으로 Phase 5 GlobalNoteMemory를 이 범위만 선제 해제.
+- 결정(B안). 전역메모+페르소나+릴레이 프리앰블을 하나의 priming(scraper.setup_prompt)으로 묶어 백엔드가 보유. base.py가 새 대화 생성 시에만 1회 주입(기존 setup_prompt 메커니즘 재사용, 별도 프라이밍 턴 1회 소모 — 사용자 수용). 복구로 대화가 새로 열려도 재주입.
+- 구현. manager.BrowserManager에 global_note 파라미터 추가. send(setup_prompt=None): setup_prompt 오면 [global_note, setup_prompt] 묶어 scraper.setup_prompt 갱신, 없으면 priming이 비어있을 때만 global_note 단독 주입. _ensure_scraper에서 conversation_url과 함께 setup_prompt도 보존(복구 재주입 핵심). main.py: 매니저에 global_note 전달, handle_send가 msg.setup_prompt 전달, save_settings에서 manager.global_note 갱신. index.html relaySend: 첫 턴에만 페르소나+프리앰블을 setup_prompt로 전송(role_prompt 인라인 제거), delta는 content로.
+- 복구 동작 정리. conversation_url이 잡혀 있으면 복구는 그 URL을 이어받아 맥락 온전(재주입 불필요). URL 잡기 전 탭이 닫힌 경우에만 새 대화가 열리고 이때 보존된 priming(전역메모+페르소나+프리앰블)이 재주입된다. 이전 턴 본문 자체는 복구 대상 아님(사용자 요구도 전역메모 재주입까지).
+- 부수효과(플래그). 팬아웃도 이제 첫 대화에 global_note를 별도 priming 턴으로 받는다(모델당 throwaway 1턴 추가). 전역메모를 모든 모드 첫 대화에 넣으려는 의도적 선택. 원치 않으면 manager.send의 elif 분기 제거하면 팬아웃은 무변경으로 되돌아간다.
+- 검증. scrapers/manager.py py_compile 통과. main.py는 샌드박스 Python 3.10이 기존 line 343(3.12 전용 f-string 백슬래시, commit d57d334)을 못 읽어 실패 — 내 편집분은 그 줄 f 접두어 중립화 후 컴파일 통과 확인. index.html node --check 통과. **서버 재시작 필요**(config/스크래퍼/서버 코드 변경).

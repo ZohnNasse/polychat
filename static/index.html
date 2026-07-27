@@ -735,6 +735,42 @@
     .relay-bar button:disabled { opacity: 0.5; cursor: default; }
     .relay-bar button.relay-extra { border-style: dashed; font-weight: 500; color: var(--text-muted); }
 
+    /* ── 회의 테이블 (팬아웃·릴레이 공용 표시) ── */
+    .meeting { margin-top: 0.5rem; }
+    .mt-seats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; align-items: start; }
+    .mt-seat { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+    .mt-ava { display: block; }
+    .mt-ava svg, svg.mt-ava { width: 60px; height: 60px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
+    .mt-plate { text-align: center; line-height: 1.2; }
+    .mt-role { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+    .mt-model { font-size: 0.66rem; color: var(--text-tertiary); }
+    .mt-bub {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 0.7rem 0.85rem; font-size: 0.875rem; line-height: 1.6;
+      white-space: pre-wrap; max-height: 200px; min-height: 66px; overflow-y: auto;
+      box-shadow: var(--shadow-sm); transition: box-shadow var(--transition), border-color var(--transition);
+    }
+    .mt-bub.empty { color: var(--text-tertiary); font-style: italic; }
+    .mt-seat.agree  .mt-bub.spk { border-color: var(--agree);  box-shadow: 0 0 0 2px rgba(52,199,89,0.18); }
+    .mt-seat.oppose .mt-bub.spk { border-color: var(--oppose); box-shadow: 0 0 0 2px rgba(255,59,48,0.16); }
+    .mt-seat.wild   .mt-bub.spk { border-color: var(--wild);   box-shadow: 0 0 0 2px rgba(255,149,0,0.18); }
+    .mt-seat.agree  .mt-role { color: var(--agree); }
+    .mt-seat.oppose .mt-role { color: var(--oppose); }
+    .mt-seat.wild   .mt-role { color: var(--wild); }
+    .mt-nav { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-tertiary); min-height: 24px; }
+    .mt-nav button { padding: 0.1rem 0.45rem; font-size: 0.9rem; line-height: 1; border-radius: 8px; }
+    .mt-nav button:disabled { opacity: 0.3; }
+    .mt-user { margin: 1.25rem auto 0; max-width: 75%; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+    .mt-user-bub {
+      background: var(--blue); color: #fff; border-radius: 16px; padding: 0.6rem 1rem;
+      font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; max-height: 140px; overflow-y: auto;
+      box-shadow: 0 2px 8px rgba(0,122,255,0.2); align-self: stretch; text-align: left;
+    }
+    .mt-user-label { font-size: 0.68rem; color: var(--text-tertiary); font-weight: 600; }
+    @keyframes mtDots { 0%,20%{opacity:.2} 50%{opacity:1} 100%{opacity:.2} }
+    .mt-typing span { animation: mtDots 1.2s infinite; }
+    .mt-typing span:nth-child(2){ animation-delay:.2s } .mt-typing span:nth-child(3){ animation-delay:.4s }
+
     @media (max-width: 600px) {
       .settings-grid { grid-template-columns: 1fr; }
       .config-row { flex-wrap: wrap; }
@@ -787,7 +823,7 @@
     <div class="config-toggle" id="configToggle">▼ 역할 설정 ▼</div>
     <div class="config-panel" id="configPanel"></div>
 
-    <!-- Chat Flow -->
+    <!-- Chat Flow (회의 테이블) -->
     <div class="chat-flow" id="chatFlow">
       <div class="empty-state" id="emptyState">
         <div class="empty-state-icon">
@@ -795,6 +831,14 @@
         </div>
         <h2>무엇을 고민 중인가요?</h2>
         <p>코드, 아키텍처, 아이디어 — 세 가지 각도에서 의견을 모아보세요</p>
+      </div>
+      <div class="meeting hidden" id="meeting">
+        <div class="mt-seats" id="mtSeats"></div>
+        <div class="mt-user hidden" id="mtUser">
+          <div class="mt-user-bub" id="mtUserBub"></div>
+          <div class="mt-nav" id="mtUserNav"></div>
+          <div class="mt-user-label">나</div>
+        </div>
       </div>
     </div>
 
@@ -894,6 +938,14 @@
     let turnCount = 0;
     let currentSynthText = "";
 
+    // ── 회의 테이블 상태 ──
+    // 화자별 자기 발언만 페이징한다. histories[slotIdx] = [{text, done}]
+    const histories = [[], [], []];
+    const viewIdx = [0, 0, 0];   // 슬롯별 현재 보고 있는 발언 인덱스
+    const userHistory = [];      // 사용자 발언 이력
+    let userViewIdx = 0;
+    const seatEls = [];          // 슬롯별 좌석 DOM 참조
+
     // ── 릴레이 모드 상태 ──
     // mode: "fanout"(병렬 팬아웃) | "relay"(사용자가 LLM을 골라 순차 대화)
     let mode = "fanout";
@@ -972,46 +1024,141 @@
       }
     };
 
-    // ── Add turn to chat ──
-    const addTurnToChat = (userText) => {
-      // Hide empty state
-      emptyState.classList.add("hidden");
+    // ── 회의 테이블 렌더링 ──
+    const BRAND_FALLBACK = { claude: "#D97706", chatgpt: "#74AA9C", gemini: "#3B82F6" };
+    const mtColor = (modelId) => agentMeta(modelId).color || BRAND_FALLBACK[modelId] || "#8e8e93";
 
-      // User message
-      const userMsg = document.createElement("div");
-      userMsg.className = "msg-user";
-      userMsg.innerHTML = `<div class="msg-user-bubble">${escapeHtml(userText)}</div>`;
-      chatFlow.appendChild(userMsg);
+    // 모델별 고정 아바타(브랜드색 + 가슴 엠블럼). 메시지마다 새로 그리지 않고 좌석에 앉혀둔다.
+    const mtAvatarSVG = (modelId) => {
+      const color = mtColor(modelId);
+      const emblems = {
+        claude: '<path d="M32 47 l1.9 4.3 4.7 .4 -3.6 3 1.1 4.6 -4.1-2.5 -4.1 2.5 1.1-4.6 -3.6-3 4.7-.4z" fill="#fff"/>',
+        chatgpt: '<circle cx="32" cy="52" r="4" fill="none" stroke="#fff" stroke-width="2"/>',
+        gemini: '<rect x="28.5" y="48.5" width="7" height="7" fill="#fff" transform="rotate(45 32 52)"/>',
+      };
+      return `<svg class="mt-ava" viewBox="0 0 64 64">
+        <path d="M10 63 Q10 43 32 43 Q54 43 54 63 Z" fill="${color}"/>
+        <circle cx="32" cy="23" r="14" fill="${color}"/>
+        <circle cx="26.5" cy="22" r="1.9" fill="#fff"/>
+        <circle cx="37.5" cy="22" r="1.9" fill="#fff"/>
+        <path d="M27 29 Q32 33 37 29" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+        ${emblems[modelId] || ""}
+      </svg>`;
+    };
 
-      // AI responses container
-      const aiResp = document.createElement("div");
-      aiResp.className = "ai-responses";
-
-      // Create each AI message
+    // 세 자리(역할·모델)를 만든다. 모델이 바뀌면 다시 그린다.
+    const buildSeats = () => {
+      const host = document.getElementById("mtSeats");
+      host.innerHTML = "";
+      seatEls.length = 0;
       for (let i = 0; i < COL_DEFS.length; i++) {
         const def = COL_DEFS[i];
-        const c = columns[i];
-        const meta = agentMeta(c.modelSel.value);
-
-        const msg = document.createElement("div");
-        msg.className = `msg-ai ${def.roleId}`;
-        msg.style.animationDelay = (i * 0.1) + "s";
-
-        msg.innerHTML = `
-          <div class="ai-avatar">${def.avatar}</div>
-          <div class="ai-bubble">
-            <div class="ai-bubble-header">
-              <span class="ai-role-label">${def.label}</span>
-              <span class="ai-model-label">${meta.display_name || c.modelSel.value}</span>
-            </div>
-            <div class="ai-bubble-body"></div>
-          </div>`;
-
-        aiResp.appendChild(msg);
-        c.body = msg.querySelector(".ai-bubble-body");
+        const seat = document.createElement("div");
+        seat.className = `mt-seat ${def.roleId}`;
+        seat.innerHTML = `
+          <div class="mt-ava-wrap"></div>
+          <div class="mt-plate">
+            <div class="mt-role">${def.label}</div>
+            <div class="mt-model"></div>
+          </div>
+          <div class="mt-bub empty">아직 발언 없음</div>
+          <div class="mt-nav"></div>`;
+        host.appendChild(seat);
+        seatEls[i] = {
+          ava: seat.querySelector(".mt-ava-wrap"),
+          model: seat.querySelector(".mt-model"),
+          bub: seat.querySelector(".mt-bub"),
+          nav: seat.querySelector(".mt-nav"),
+        };
+        mtRenderSeat(i);
       }
+    };
 
-      chatFlow.appendChild(aiResp);
+    const mtRenderSeat = (i) => {
+      const el = seatEls[i]; if (!el) return;
+      const modelId = columns[i] ? columns[i].modelSel.value : COL_DEFS[i].defModel;
+      const meta = agentMeta(modelId);
+      el.ava.innerHTML = mtAvatarSVG(modelId);
+      el.model.textContent = meta.display_name || modelId;
+      const hist = histories[i];
+      if (!hist.length) {
+        el.bub.className = "mt-bub empty";
+        el.bub.textContent = "아직 발언 없음";
+        el.nav.innerHTML = "";
+        return;
+      }
+      const idx = Math.min(viewIdx[i], hist.length - 1);
+      const utt = hist[idx];
+      el.bub.className = "mt-bub" + (utt.done ? "" : " spk");
+      if (!utt.done && !utt.text) {
+        el.bub.innerHTML = '<span class="mt-typing">응답 대기중<span>.</span><span>.</span><span>.</span></span>';
+      } else {
+        el.bub.textContent = utt.text || "(빈 응답)";
+      }
+      el.nav.innerHTML = "";
+      const prev = document.createElement("button");
+      prev.textContent = "‹"; prev.disabled = idx <= 0;
+      prev.onclick = () => mtStep(i, -1);
+      const cnt = document.createElement("span");
+      cnt.textContent = `${idx + 1} / ${hist.length}`;
+      const next = document.createElement("button");
+      next.textContent = "›"; next.disabled = idx >= hist.length - 1;
+      next.onclick = () => mtStep(i, +1);
+      el.nav.append(prev, cnt, next);
+    };
+
+    const mtStep = (i, d) => {
+      const hist = histories[i]; if (!hist.length) return;
+      viewIdx[i] = Math.max(0, Math.min(hist.length - 1, viewIdx[i] + d));
+      mtRenderSeat(i);
+    };
+
+    const mtShowMeeting = () => {
+      emptyState.classList.add("hidden");
+      document.getElementById("meeting").classList.remove("hidden");
+    };
+
+    // 슬롯에 새 발언 자리를 추가하고 최신으로 이동. uttIdx 반환.
+    const mtNewUtterance = (i) => {
+      histories[i].push({ text: "", done: false });
+      viewIdx[i] = histories[i].length - 1;
+      mtShowMeeting();
+      mtRenderSeat(i);
+      return histories[i].length - 1;
+    };
+
+    // chunk/done에서 발언 텍스트 갱신. 현재 보고 있는 게 그 발언이면 즉시 반영.
+    const mtUpdate = (i, uttIdx, text, done) => {
+      const utt = histories[i][uttIdx]; if (!utt) return;
+      utt.text = text; if (done) utt.done = true;
+      if (viewIdx[i] === uttIdx) mtRenderSeat(i);
+    };
+
+    // 사용자 발언 표시 + 페이징.
+    const mtShowUser = (text) => {
+      userHistory.push(text);
+      userViewIdx = userHistory.length - 1;
+      mtShowMeeting();
+      document.getElementById("mtUser").classList.remove("hidden");
+      mtRenderUser();
+    };
+    const mtRenderUser = () => {
+      if (!userHistory.length) return;
+      const idx = Math.min(userViewIdx, userHistory.length - 1);
+      document.getElementById("mtUserBub").textContent = userHistory[idx];
+      const nav = document.getElementById("mtUserNav");
+      nav.innerHTML = "";
+      if (userHistory.length > 1) {
+        const p = document.createElement("button");
+        p.textContent = "‹"; p.disabled = idx <= 0;
+        p.onclick = () => { userViewIdx = Math.max(0, userViewIdx - 1); mtRenderUser(); };
+        const c = document.createElement("span");
+        c.textContent = `${idx + 1} / ${userHistory.length}`;
+        const n = document.createElement("button");
+        n.textContent = "›"; n.disabled = idx >= userHistory.length - 1;
+        n.onclick = () => { userViewIdx = Math.min(userHistory.length - 1, userViewIdx + 1); mtRenderUser(); };
+        nav.append(p, c, n);
+      }
     };
 
     const escapeHtml = (s) => {
@@ -1047,15 +1194,15 @@
         return;
       }
 
-      addTurnToChat(text);
+      mtShowUser(text);
 
       for (let i = 0; i < columns.length; i++) {
         const c = columns[i];
         c.turnId = crypto.randomUUID();
         c.text = ""; c.done = false;
         c.modelSel.disabled = true;
-        byTurn[c.turnId] = c;
-        c.body.innerHTML = spinnerHTML();
+        const uttIdx = mtNewUtterance(i);
+        byTurn[c.turnId] = { slotIdx: i, uttIdx, relay: false };
         ws.send(JSON.stringify({ type: "send", agent: c.modelSel.value,
                                  role_prompt: c.promptTa ? c.promptTa.value : savedColumns[COL_DEFS[i].roleId]?.prompt || "",
                                  content: text, turn_id: c.turnId }));
@@ -1149,17 +1296,30 @@
     const relaySend = (slotIdx) => {
       if (relayBusy) return;
       const text = symptom.value.trim();
-      if (text) { transcript.push({ speaker: "user", text }); relayAddUser(text); }
+      if (text) { transcript.push({ speaker: "user", text }); mtShowUser(text); }
 
       const delta = relayDelta(slotIdx);
       if (!delta.trim()) { alert("전달할 새 내용이 없어. 먼저 메시지를 입력하거나 다른 LLM의 응답을 받아."); return; }
 
       const c = columns[slotIdx];
       const first = relaySeen[slotIdx] === undefined;
+      // 첫 턴에만 페르소나+릴레이 프리앰블을 setup_prompt(priming)로 보낸다.
+      // 백엔드가 전역메모를 앞에 붙여 새 대화 생성 시 1회 주입하고, 복구로 대화가 새로 열려도 재주입한다.
+      let setupPrompt = "";
+      if (first) {
+        const persona = c.promptTa ? c.promptTa.value.trim() : "";
+        const others = columns.map((_, j) => j).filter(j => j !== slotIdx).map(j => relayLabel(j));
+        const preamble =
+          `지금부터 여러 참가자가 한 주제를 릴레이로 이어 논의해. ` +
+          `참가자는 사용자(나)와 다른 AI들(${others.join(", ")})이야. ` +
+          `너는 '${relayLabel(slotIdx)}' 자리야. ` +
+          `앞선 발언을 읽고 거기에 직접 반응하며 네 역할로 이어 말해. ` +
+          `원 질문에 처음부터 새로 답하지 말고 흐름을 이어가.`;
+        setupPrompt = [persona, preamble].filter(Boolean).join("\n\n");
+      }
       const tid = crypto.randomUUID();
-      const body = relayAddReply(slotIdx);
-      const turnObj = { relay: true, slotIdx, body, text: "", done: false };
-      byTurn[tid] = turnObj;
+      const uttIdx = mtNewUtterance(slotIdx);
+      byTurn[tid] = { slotIdx, uttIdx, relay: true };
 
       relayBusy = true;
       symptom.value = ""; autoResize(symptom);
@@ -1168,15 +1328,15 @@
 
       ws.send(JSON.stringify({
         type: "send", agent: c.modelSel.value,
-        role_prompt: first ? (c.promptTa ? c.promptTa.value : "") : "",
+        setup_prompt: setupPrompt,
         content: delta, turn_id: tid,
       }));
     };
 
     // 릴레이 응답 완료 시 로그에 기록하고 그 슬롯의 seen 인덱스를 갱신한다.
-    const relayDone = (turnObj, replyText) => {
-      transcript.push({ speaker: turnObj.slotIdx, label: relayLabel(turnObj.slotIdx), text: replyText });
-      relaySeen[turnObj.slotIdx] = transcript.length - 1;
+    const relayDone = (ref, replyText) => {
+      transcript.push({ speaker: ref.slotIdx, label: relayLabel(ref.slotIdx), text: replyText });
+      relaySeen[ref.slotIdx] = transcript.length - 1;
       relayBusy = false;
       symptom.disabled = false;
       symptom.focus();
@@ -1201,38 +1361,6 @@
       const firstUser = transcript.find(t => t.speaker === "user");
       ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT,
                                symptom: firstUser ? firstUser.text : "", responses }));
-    };
-
-    // 릴레이 DOM 렌더링 (chatFlow 재사용)
-    const relayAddUser = (text) => {
-      emptyState.classList.add("hidden");
-      const el = document.createElement("div");
-      el.className = "msg-user";
-      el.innerHTML = `<div class="msg-user-bubble">${escapeHtml(text)}</div>`;
-      chatFlow.appendChild(el);
-      el.scrollIntoView({ behavior: "smooth", block: "end" });
-    };
-    const relayAddReply = (slotIdx) => {
-      emptyState.classList.add("hidden");
-      const def = COL_DEFS[slotIdx];
-      const c = columns[slotIdx];
-      const meta = agentMeta(c.modelSel.value);
-      const wrap = document.createElement("div");
-      wrap.className = "ai-responses";
-      wrap.innerHTML = `
-        <div class="msg-ai ${def.roleId}">
-          <div class="ai-avatar">${def.avatar}</div>
-          <div class="ai-bubble">
-            <div class="ai-bubble-header">
-              <span class="ai-role-label">${def.label}</span>
-              <span class="ai-model-label">${meta.display_name || c.modelSel.value}</span>
-            </div>
-            <div class="ai-bubble-body">${spinnerHTML()}</div>
-          </div>
-        </div>`;
-      chatFlow.appendChild(wrap);
-      wrap.scrollIntoView({ behavior: "smooth", block: "end" });
-      return wrap.querySelector(".ai-bubble-body");
     };
 
     // ── WebSocket ──
@@ -1262,23 +1390,25 @@
           };
         });
         saveMsg.textContent = "불러옴";
+        buildSeats();  // 좌석(역할·모델) 렌더 — 모델 바뀌면 아바타/이름 갱신, 발언 이력은 유지
         if (mode === "relay") renderRelayBar();  // 슬롯 라벨(모델명) 갱신
         return;
       }
       if (msg.type === "chunk") {
-        const c = byTurn[msg.turn_id];
-        if (c && msg.text) { c.text = msg.text; c.body.textContent = msg.text; }
+        const ref = byTurn[msg.turn_id];
+        if (ref && msg.text) mtUpdate(ref.slotIdx, ref.uttIdx, msg.text, false);
         return;
       }
       if (msg.type === "done") {
-        const c = byTurn[msg.turn_id];
-        if (c) {
-          c.text = msg.text || "";
-          c.body.textContent = c.text || "(빈 응답)";
-          c.done = true;
-          if (c.relay) { relayDone(c, c.text); return; }
+        const ref = byTurn[msg.turn_id];
+        if (ref) {
+          const text = msg.text || "";
+          mtUpdate(ref.slotIdx, ref.uttIdx, text, true);
+          if (ref.relay) { relayDone(ref, text); return; }
+          const col = columns[ref.slotIdx];
+          col.text = text; col.done = true;
           maybeEnableSynth();
-          if (columns.every(col => col.done)) finishTurn();
+          if (columns.every(c => c.done)) finishTurn();
         }
         return;
       }
@@ -1347,13 +1477,13 @@
       }
       if (msg.type === "reset_done") { location.reload(); return; }
       if (msg.type === "error") {
-        const c = byTurn[msg.turn_id];
-        if (c && c.relay) {
-          c.body.textContent = "오류: " + (msg.message || "");
+        const ref = byTurn[msg.turn_id];
+        if (ref && ref.relay) {
+          mtUpdate(ref.slotIdx, ref.uttIdx, "오류: " + (msg.message || ""), true);
           relayBusy = false; symptom.disabled = false; renderRelayBar();
-        } else if (c) {
-          c.body.textContent = "오류: " + (msg.message || "");
-          c.done = true;
+        } else if (ref) {
+          mtUpdate(ref.slotIdx, ref.uttIdx, "오류: " + (msg.message || ""), true);
+          columns[ref.slotIdx].done = true;
           maybeEnableSynth();
           if (columns.every(col => col.done)) finishTurn();
         } else if (curRefineBody) {
