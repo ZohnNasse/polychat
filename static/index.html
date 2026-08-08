@@ -750,8 +750,43 @@
       grid-area: table; width: 150px; height: 150px; border-radius: 50%;
       background: var(--surface); border: 2px solid var(--border);
       box-shadow: inset 0 2px 12px rgba(0,0,0,0.06), var(--shadow-sm);
-      display: flex; align-items: center; justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem;
       color: var(--text-tertiary); font-size: 0.72rem; font-weight: 600;
+      font-family: inherit; padding: 0.5rem; cursor: default;
+    }
+    .mt-table.clickable { cursor: pointer; transition: transform var(--transition), box-shadow var(--transition); }
+    .mt-table.clickable:hover { transform: scale(1.04); box-shadow: inset 0 2px 12px rgba(0,0,0,0.06), var(--shadow-md, 0 6px 20px rgba(0,0,0,0.12)); }
+    .mt-table-label { font-size: 0.72rem; font-weight: 600; color: var(--text-tertiary); }
+    .mt-stack { display: flex; flex-direction: column; gap: 0.2rem; align-items: center; }
+    .mt-stack:empty { display: none; }
+    .mt-chip {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em;
+      padding: 0.12rem 0.5rem; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--border); color: var(--text-tertiary);
+    }
+    .mt-chip.ready { border-color: var(--purple, #7c3aed); color: var(--purple, #7c3aed); animation: chipPulse 1.6s infinite; }
+    .mt-chip.done { background: var(--purple, #7c3aed); border-color: var(--purple, #7c3aed); color: #fff; }
+    @keyframes chipPulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+    /* 결과 오버레이 (테이블 위 · 종합/이의제기/최종결론을 모달로 표시) */
+    .result-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem; background: rgba(15,17,26,0.4);
+      -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    }
+    .result-overlay.hidden { display: none !important; }
+    .result-overlay-inner {
+      position: relative; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 16px;
+      box-shadow: var(--shadow-lg); width: 100%; max-width: 620px;
+      max-height: 82vh; overflow-y: auto; padding: 1.2rem 1.3rem 1.3rem;
+    }
+    .result-overlay-close {
+      position: absolute; top: 0.6rem; right: 0.7rem; z-index: 2;
+      border: 1px solid var(--border); background: var(--surface);
+      border-radius: 999px; width: 28px; height: 28px; line-height: 1;
+      font-size: 1.1rem; cursor: pointer; color: var(--text-tertiary);
     }
     .mt-seat { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
     .mt-ava { display: block; }
@@ -852,7 +887,10 @@
       <div class="meeting hidden" id="meeting">
         <div class="mt-room">
           <div class="mt-seats" id="mtSeats"></div>
-          <div class="mt-table" aria-hidden="true">결과</div>
+          <button class="mt-table" id="mtTable" type="button" aria-label="결과 보기">
+            <span class="mt-table-label">결과</span>
+            <div class="mt-stack" id="mtStack"></div>
+          </button>
           <div class="mt-user hidden" id="mtUser">
             <div class="mt-user-bub" id="mtUserBub"></div>
             <div class="mt-nav" id="mtUserNav"></div>
@@ -862,9 +900,12 @@
       </div>
     </div>
 
-    <!-- Synthesis (appended to chat flow) -->
-    <div class="synth-section hidden" id="synthWrap">
-      <div class="turn-divider"><span>종합</span></div>
+    <!-- 결과 오버레이 (테이블 위 모달 · 종합/이의제기/최종결론) -->
+    <div class="result-overlay hidden" id="resultOverlay">
+      <div class="result-overlay-inner">
+        <button class="result-overlay-close" id="resultClose" type="button" aria-label="닫기">×</button>
+        <div class="synth-section" id="synthWrap">
+          <div class="turn-divider"><span>종합</span></div>
       <div class="synth-btn-wrap">
         <button id="synthBtn" class="btn-secondary" disabled>합성하기</button>
       </div>
@@ -895,6 +936,8 @@
             <textarea id="refineInput" rows="2" placeholder="더 생각해볼 점, 반박, 조율..."></textarea>
             <button id="refineBtn" class="btn-primary">재검토</button>
           </div>
+        </div>
+      </div>
         </div>
       </div>
     </div>
@@ -938,7 +981,34 @@
     const refineBtn = document.getElementById("refineBtn");
     const symptom = document.getElementById("symptom");
     const startBtn = document.getElementById("startBtn");
+    const mtTable = document.getElementById("mtTable");
+    const mtStack = document.getElementById("mtStack");
+    const resultOverlay = document.getElementById("resultOverlay");
+    const resultClose = document.getElementById("resultClose");
     let curRefineBody = null;
+
+    // ── 결과 오버레이 (테이블 위 모달) ──
+    const RESULT_STAGES = { synth: "종합", vote: "이의제기", finalize: "최종결론" };
+    const openResult = () => resultOverlay.classList.remove("hidden");
+    const closeResult = () => resultOverlay.classList.add("hidden");
+    // 테이블 위 결과 스택 칩 갱신. key당 1개 유지. state: "ready" | "done"
+    const mtStackSet = (key, state) => {
+      mtTable.classList.add("clickable");
+      let chip = mtStack.querySelector(`[data-stage="${key}"]`);
+      if (!chip) {
+        chip = document.createElement("span");
+        chip.className = "mt-chip";
+        chip.dataset.stage = key;
+        chip.textContent = RESULT_STAGES[key];
+        mtStack.appendChild(chip);
+      }
+      chip.classList.remove("ready", "done");
+      chip.classList.add(state);
+    };
+    mtTable.addEventListener("click", () => { if (mtStack.children.length) openResult(); });
+    resultClose.addEventListener("click", closeResult);
+    resultOverlay.addEventListener("click", (e) => { if (e.target === resultOverlay) closeResult(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeResult(); });
 
     let agents = [];
     let roles = [];
@@ -1232,8 +1302,8 @@
     const maybeEnableSynth = () => {
       if (columns.every(c => c.done)) {
         synthBtn.disabled = false;
-        synthWrap.classList.remove("hidden");
-        synthWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        mtStackSet("synth", "ready");
+        openResult();
       }
     };
 
@@ -1375,9 +1445,9 @@
         }
       }
       if (responses.length < 2) return;
-      synthWrap.classList.remove("hidden");
       synthPanel.innerHTML = spinnerHTML();
-      synthWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+      mtStackSet("synth", "ready");
+      openResult();
       const firstUser = transcript.find(t => t.speaker === "user");
       ws.send(JSON.stringify({ type: "synthesize", agent: SYNTH_AGENT,
                                symptom: firstUser ? firstUser.text : "", responses }));
@@ -1440,7 +1510,9 @@
         if (msg.text) synthPanel.textContent = msg.text;
         voteWrap.classList.remove("hidden");
         voteBtn.disabled = false;
-        voteWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        mtStackSet("synth", "done");
+        mtStackSet("vote", "ready");
+        openResult();
         return;
       }
       if (msg.type === "vote_chunk") {
@@ -1478,7 +1550,9 @@
           ws.send(JSON.stringify({ type: "finalize", agent: SYNTH_AGENT,
                                    synthesis: synthText, vote_responses: voteResponses }));
         };
-        finalizeWrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        mtStackSet("vote", "done");
+        mtStackSet("finalize", "ready");
+        openResult();
         return;
       }
       if (msg.type === "finalize_chunk") {
@@ -1488,6 +1562,7 @@
       if (msg.type === "finalize_done") {
         if (msg.text) finalizePanel.textContent = msg.text;
         refineWrap.classList.remove("hidden");
+        mtStackSet("finalize", "done");
         return;
       }
       if (msg.type === "refine_chunk" || msg.type === "refine_done") {
