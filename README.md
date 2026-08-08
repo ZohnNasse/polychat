@@ -15,7 +15,7 @@ PolyChat은 **네 컴퓨터의 크롬에 붙어** Claude·ChatGPT·Gemini의 웹
 ## 설치
 
 ```bash
-git clone <이 저장소 URL>
+git clone https://github.com/ZohnNasse/polychat
 cd polychat
 python3 -m venv .venv
 source .venv/bin/activate
