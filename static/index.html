@@ -1456,7 +1456,7 @@
           }));
           const synthText = synthPanel.textContent || "";
           ws.send(JSON.stringify({ type: "finalize", agent: SYNTH_AGENT,
-                                   synthesis: synthText, vote_responses }));
+                                   synthesis: synthText, vote_responses: voteResponses }));
         };
         finalizeWrap.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
