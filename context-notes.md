@@ -162,3 +162,12 @@
 - 복구 동작 정리. conversation_url이 잡혀 있으면 복구는 그 URL을 이어받아 맥락 온전(재주입 불필요). URL 잡기 전 탭이 닫힌 경우에만 새 대화가 열리고 이때 보존된 priming(전역메모+페르소나+프리앰블)이 재주입된다. 이전 턴 본문 자체는 복구 대상 아님(사용자 요구도 전역메모 재주입까지).
 - 부수효과(플래그). 팬아웃도 이제 첫 대화에 global_note를 별도 priming 턴으로 받는다(모델당 throwaway 1턴 추가). 전역메모를 모든 모드 첫 대화에 넣으려는 의도적 선택. 원치 않으면 manager.send의 elif 분기 제거하면 팬아웃은 무변경으로 되돌아간다.
 - 검증. scrapers/manager.py py_compile 통과. main.py는 샌드박스 Python 3.10이 기존 line 343(3.12 전용 f-string 백슬래시, commit d57d334)을 못 읽어 실패 — 내 편집분은 그 줄 f 접두어 중립화 후 컴파일 통과 확인. index.html node --check 통과. **서버 재시작 필요**(config/스크래퍼/서버 코드 변경).
+
+## 2026-08-08 회의 테이블 동서남북(N/E/W/S) 배치 전환
+- 배경. 기존 회의 테이블은 좌석 3열 그리드(mt-seats)라 세 AI가 전부 앞쪽 화자를 마주보는 구도였다. "둘러앉은 회의"가 안 느껴진다는 지적으로 컴퍼스형(N/E/W/S) 배치로 교체. 캐릭터/아바타 디자인은 이번 범위 밖(다음 작업).
+- 결정. static/index.html 프론트만 수정. JS 무변경(mtAvatarSVG·buildSeats 그대로). buildSeats는 여전히 #mtSeats에 좌석 3개를 순서대로 append.
+- 메커니즘. .meeting 안에 .mt-room(3×3 grid-template-areas: north/west·table·east/south) 신설. #mtSeats에 `display:contents`를 걸어 좌석 3개를 room 그리드 아이템으로 승격 → nth-child(1/2/3)로 각각 west(찬성)·north(부정)·east(엉뚱)에 배치. 중앙 .mt-table(원형 placeholder, "결과" 라벨), .mt-user는 south로 이동.
+- 좁은 화면(≤600px)은 north→west→east→table→south 단일열 스택.
+- 왜 display:contents. 좌석을 room 그리드에 직접 넣으려면 buildSeats가 room을 비우면 table/user까지 지워지는 문제. contents로 #mtSeats 박스만 레이아웃에서 지우면 JS 손 안 대고 좌석만 그리드에 분산.
+- 다음. 중앙 테이블에 종합/이의제기/최종결론 카드 얹기, 캐릭터(도트) 디자인 확정.
+- 검증. mt-room×3·mt-table×3·display:contents·grid-template-areas 존재 확인. JS 무변경. **정적 파일이라 서버 재시작 불필요, 브라우저 새로고침만.**

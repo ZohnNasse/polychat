@@ -737,7 +737,22 @@
 
     /* ── 회의 테이블 (팬아웃·릴레이 공용 표시) ── */
     .meeting { margin-top: 0.5rem; }
-    .mt-seats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; align-items: start; }
+    .mt-room {
+      display: grid; gap: 0.75rem 1rem; align-items: center; justify-items: center;
+      grid-template-columns: 1fr 1.15fr 1fr;
+      grid-template-areas: ". north ." "west table east" ". south .";
+    }
+    .mt-seats { display: contents; }
+    .mt-seat:nth-child(1) { grid-area: west; }
+    .mt-seat:nth-child(2) { grid-area: north; }
+    .mt-seat:nth-child(3) { grid-area: east; }
+    .mt-table {
+      grid-area: table; width: 150px; height: 150px; border-radius: 50%;
+      background: var(--surface); border: 2px solid var(--border);
+      box-shadow: inset 0 2px 12px rgba(0,0,0,0.06), var(--shadow-sm);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-tertiary); font-size: 0.72rem; font-weight: 600;
+    }
     .mt-seat { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
     .mt-ava { display: block; }
     .mt-ava svg, svg.mt-ava { width: 60px; height: 60px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
@@ -760,7 +775,7 @@
     .mt-nav { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--text-tertiary); min-height: 24px; }
     .mt-nav button { padding: 0.1rem 0.45rem; font-size: 0.9rem; line-height: 1; border-radius: 8px; }
     .mt-nav button:disabled { opacity: 0.3; }
-    .mt-user { margin: 1.25rem auto 0; max-width: 75%; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+    .mt-user { grid-area: south; margin: 0.25rem auto 0; max-width: 100%; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
     .mt-user-bub {
       background: var(--blue); color: #fff; border-radius: 16px; padding: 0.6rem 1rem;
       font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; max-height: 140px; overflow-y: auto;
@@ -775,6 +790,8 @@
       .settings-grid { grid-template-columns: 1fr; }
       .config-row { flex-wrap: wrap; }
       .msg-user-bubble { max-width: 90%; }
+      .mt-room { grid-template-columns: 1fr; grid-template-areas: "north" "west" "east" "table" "south"; }
+      .mt-table { width: 96px; height: 96px; }
     }
   </style>
 </head>
@@ -833,11 +850,14 @@
         <p>코드, 아키텍처, 아이디어 — 세 가지 각도에서 의견을 모아보세요</p>
       </div>
       <div class="meeting hidden" id="meeting">
-        <div class="mt-seats" id="mtSeats"></div>
-        <div class="mt-user hidden" id="mtUser">
-          <div class="mt-user-bub" id="mtUserBub"></div>
-          <div class="mt-nav" id="mtUserNav"></div>
-          <div class="mt-user-label">나</div>
+        <div class="mt-room">
+          <div class="mt-seats" id="mtSeats"></div>
+          <div class="mt-table" aria-hidden="true">결과</div>
+          <div class="mt-user hidden" id="mtUser">
+            <div class="mt-user-bub" id="mtUserBub"></div>
+            <div class="mt-nav" id="mtUserNav"></div>
+            <div class="mt-user-label">나 · 화자</div>
+          </div>
         </div>
       </div>
     </div>
