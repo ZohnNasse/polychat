@@ -28,8 +28,10 @@ class BrowserManager:
     def __init__(self, agents: dict, profiles_dir, mode: str = "cdp",
                  cdp_url: str = "http://localhost:9222",
                  headless: bool = False, channel: str = "chrome",
-                 auto_launch: bool = True, chrome_path: str = ""):
+                 auto_launch: bool = True, chrome_path: str = "",
+                 global_note: str = ""):
         self.agents = agents              # config.yaml의 agents 딕셔너리 (셀렉터 포함)
+        self.global_note = global_note    # 모든 새 대화의 priming 앞에 붙는 전역메모(설정에서 편집)
         self.profiles_dir = Path(profiles_dir)
         self.mode = mode                  # "cdp"=실행 중인 Chrome에 접속, "persistent"=영구 프로필 직접 기동
         self.cdp_url = cdp_url
@@ -134,6 +136,7 @@ class BrowserManager:
         if cached and not cached.page.is_closed():
             return cached
         saved_conv = cached.conversation_url if cached else None  # 탭이 닫혀도 대화는 이어간다
+        saved_setup = cached.setup_prompt if cached else None     # 복구로 대화가 새로 열리면 priming 재주입용
         self._scrapers.pop(agent_id, None)
         if agent_id not in SCRAPERS:
             raise ValueError(f"no scraper for agent: {agent_id}")
@@ -163,6 +166,8 @@ class BrowserManager:
             scraper.url = cfg_url
         if saved_conv:
             scraper.conversation_url = saved_conv  # 재생성 시 원래 대화로 복귀
+        if saved_setup:
+            scraper.setup_prompt = saved_setup     # 대화가 새로 열리면 이 priming을 재주입
         self._scrapers[agent_id] = scraper
         return scraper
 
@@ -188,8 +193,16 @@ class BrowserManager:
         for s in self._scrapers.values():
             s.conversation_url = None
 
-    async def send(self, agent_id: str, text: str, on_update=None) -> str:
+    async def send(self, agent_id: str, text: str, on_update=None, setup_prompt=None) -> str:
         async with self._init_lock:                       # 생성 단계만 직렬화
             scraper = await self._ensure_scraper(agent_id)
+            # priming(설정 프롬프트)은 새 대화가 열릴 때만 1회 주입된다(복구로 새로 열려도 재주입).
+            # setup_prompt(릴레이 첫 턴의 페르소나·프리앰블)가 오면 전역메모와 묶어 갱신하고,
+            # 없으면 priming이 아직 비어 있을 때에 한해 전역메모만이라도 넣는다.
+            if setup_prompt and setup_prompt.strip():
+                parts = [p for p in (self.global_note, setup_prompt) if p and p.strip()]
+                scraper.setup_prompt = "\n\n".join(parts)
+            elif not scraper.setup_prompt.strip() and self.global_note.strip():
+                scraper.setup_prompt = self.global_note
         async with self._send_locks[agent_id]:            # 전송은 모델별 독립 → 한 모델 정지가 전체를 막지 않음
             return await scraper.send_message(text, on_update=on_update)

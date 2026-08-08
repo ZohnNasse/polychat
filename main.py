@@ -37,6 +37,7 @@ manager = BrowserManager(
     channel=_srv.get("browser_channel", "chrome"),
     auto_launch=_srv.get("cdp_auto_launch", True),
     chrome_path=_srv.get("chrome_path", ""),
+    global_note=SETTINGS["global_note"],
 )
 
 app = FastAPI()
@@ -75,6 +76,7 @@ async def handle_send(ws: WebSocket, msg: dict):
     role_prompt = (msg.get("role_prompt") or "").strip()
     content = msg.get("content") or msg.get("text") or ""
     text = f"{role_prompt}\n\n{content}" if role_prompt else content
+    setup_prompt = msg.get("setup_prompt")  # 릴레이 첫 턴의 페르소나·프리앰블(있으면 priming으로 주입)
     turn_id = msg.get("turn_id") or str(uuid.uuid4())
     print(f"[handle_send] agent={aid} role={'Y' if role_prompt else 'N'} turn={turn_id}")
 
@@ -83,7 +85,7 @@ async def handle_send(ws: WebSocket, msg: dict):
         await ws.send_json({"type": "chunk", "agent": aid, "turn_id": turn_id, "text": t})
 
     try:
-        reply = await manager.send(aid, text, on_update=on_update)
+        reply = await manager.send(aid, text, on_update=on_update, setup_prompt=setup_prompt)
         await ws.send_json({"type": "done", "agent": aid, "turn_id": turn_id, "text": reply})
     except Exception as e:
         print(f"[handle_send:{aid}] ERROR {e!r}")
@@ -298,6 +300,7 @@ async def handle_save_settings(ws: WebSocket, msg: dict):
     note = msg.get("global_note")
     if isinstance(note, str):
         SETTINGS["global_note"] = note
+        manager.global_note = note  # 다음 새 대화부터 갱신된 전역메모가 priming에 반영된다
     cols = msg.get("columns")
     if isinstance(cols, dict):
         SETTINGS["columns"] = cols
